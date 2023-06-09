@@ -1,0 +1,13 @@
+apiVersion: vedratan.dev/v1alpha1
+kind: Kluster
+metadata:
+  name: kluster-0
+spec:
+  name: kluster-0
+  region: "nyc1"
+  version: "1.14.1-do.4"
+  tokenSecret: "default/dosecret"
+  nodePools:
+    - count: 3
+      name: "dummy-nodepool"
+      size: "s-2vcpu-2gb"
