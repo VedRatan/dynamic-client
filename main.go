@@ -9,9 +9,11 @@ import (
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
+	"k8s.io/client-go/metadata"
+	"k8s.io/client-go/metadata/metadatainformer"
 
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/dynamic/dynamicinformer"
+	// "k8s.io/client-go/dynamic"
+	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -36,7 +38,7 @@ func main() {
 		}
 	}
 
-	dynamicClient, err := dynamic.NewForConfig(config)
+	metadataClient, err := metadata.NewForConfig(config)
 
 	if err != nil{
 		fmt.Printf("error %s in getting dynamic client\n", err.Error())
@@ -62,9 +64,11 @@ func main() {
 	// 	fmt.Printf("error %s, converting unstructured to kluster type", err.Error())
 	// }
 
-	infFactory := dynamicinformer.NewDynamicSharedInformerFactory(dynamicClient, 10*time.Minute)
+	infFactory := metadatainformer.NewSharedInformerFactory(metadataClient, 10*time.Minute)
+	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
+	fmt.Printf("%+v\n", resource)
 
-	c := newController(dynamicClient, infFactory)
+	c := newController(metadataClient, infFactory, resource)
 	infFactory.Start(make(<-chan struct{}))
 	c.run(make(<-chan struct{}))
 	fmt.Printf("the concrete type that we got is: %v\n", k)
