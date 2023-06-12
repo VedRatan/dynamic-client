@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,12 +10,14 @@ import (
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 
 	// "k8s.io/client-go/dynamic"
 	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 )
@@ -64,13 +67,26 @@ func main() {
 	// 	fmt.Printf("error %s, converting unstructured to kluster type", err.Error())
 	// }
 
-	infFactory := metadatainformer.NewSharedInformerFactory(metadataClient, 10*time.Minute)
+	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *v1.ListOptions) {
+		options.LabelSelector = "foo"
+	})
 	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
 	fmt.Printf("%+v\n", resource)
-
+	
 	c := newController(metadataClient, infFactory, resource)
-	infFactory.Start(make(<-chan struct{}))
-	c.run(make(<-chan struct{}))
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+
+	infFactory.Start(stopCh)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
+		fmt.Print("waiting for the cache to be synced...\n")
+	}
+
+	c.run(stopCh)
 	fmt.Printf("the concrete type that we got is: %v\n", k)
 
 }

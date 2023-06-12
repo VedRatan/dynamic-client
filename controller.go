@@ -41,13 +41,13 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 				}
 
 				// Get the resource's labels
-				labels := metaObj.GetLabels()
+				 labels := metaObj.GetLabels()
 
-				// fmt.Println("resource was created")
+				 fmt.Println("resource was created")
 				// Check if the resource has a specific label
-				if val, ok := labels["foo"]; ok {
+				 if val, ok := labels["foo"]; ok {
 					fmt.Printf("Resource with label 'foo' was created (%s): %s\n", resource.Resource, val)
-				}
+				 }
 			},
 			DeleteFunc: func(obj interface{}) {
 				metaObj, err := meta.Accessor(obj)
@@ -101,9 +101,9 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 
 func (c *controller) run(ch <-chan struct{}) {
 	fmt.Println("starting controller ....")
-	if !cache.WaitForCacheSync(ch, c.informer.HasSynced) {
-		fmt.Print("waiting for the cache to be synced...\n")
-	}
+	// if !cache.WaitForCacheSync(ch, c.informer.HasSynced) {
+	// 	fmt.Print("waiting for the cache to be synced...\n")
+	// }
 
 	// launching a go coroutine to run continuously till terminated by the end user, it will resync the cache immediately after 1s
 	go wait.Until(c.worker, 1*time.Second, ch)
