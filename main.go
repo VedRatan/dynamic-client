@@ -74,19 +74,17 @@ func main() {
 	fmt.Printf("%+v\n", resource)
 	
 	c := newController(metadataClient, infFactory, resource)
-
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-
-	infFactory.Start(stopCh)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	infFactory.Start(ctx.Done())
+
 	
 	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
-	c.run(stopCh)
+	c.run(ctx.Done())
 	fmt.Printf("the concrete type that we got is: %v\n", k)
 
 }

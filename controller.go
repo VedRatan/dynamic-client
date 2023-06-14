@@ -12,6 +12,7 @@ import (
 	// "k8s.io/client-go/dynamic"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
+	"k8s.io/client-go/util/workqueue"
 
 	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
@@ -20,6 +21,7 @@ import (
 type controller struct {
 	client   metadata.Interface
 	informer cache.SharedIndexInformer
+	queue            workqueue.RateLimitingInterface
 }
 
 func newController(client metadata.Interface, metaInformerFactory metadatainformer.SharedInformerFactory, resource schema.GroupVersionResource) *controller {
@@ -31,72 +33,80 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 
 	inf := metaInformerFactory.ForResource(resource).Informer()
 
-	inf.AddEventHandler(
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				metaObj, err := meta.Accessor(obj)
-				if err != nil {
-					fmt.Printf("Error accessing metadata: %v", err)
-					return
-				}
-
-				// Get the resource's labels
-				 labels := metaObj.GetLabels()
-
-				 fmt.Println("resource was created")
-				// Check if the resource has a specific label
-				 if val, ok := labels["foo"]; ok {
-					fmt.Printf("Resource with label 'foo' was created (%s): %s\n", resource.Resource, val)
-				 }
-			},
-			DeleteFunc: func(obj interface{}) {
-				metaObj, err := meta.Accessor(obj)
-				if err != nil {
-					fmt.Printf("Error accessing metadata: %v", err)
-					return
-				}
-
-				// Get the resource's labels
-				labels := metaObj.GetLabels()
-
-				// fmt.Println("resource was created")
-				// Check if the resource has a specific label
-				if val, ok := labels["foo"]; ok {
-					fmt.Printf("Resource with label 'foo' was deleted (%s): %s\n", resource.Resource, val)
-				}
-			},
-
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldMetaObj, err := meta.Accessor(oldObj)
-				if err != nil {
-					log.Printf("Error accessing old metadata: %v", err)
-					return
-				}
-				newMetaObj, err := meta.Accessor(newObj)
-				if err != nil {
-					log.Printf("Error accessing new metadata: %v", err)
-					return
-				}
-
-				// Get the old and new resource's labels
-				oldLabels := oldMetaObj.GetLabels()
-				newLabels := newMetaObj.GetLabels()
-
-				// Check if the label value has changed
-				if oldVal, ok := oldLabels["foo"]; ok {
-					if newVal, ok := newLabels["foo"]; ok && oldVal != newVal {
-						fmt.Printf("Resource with label 'foo' was updated (%s): %s -> %s\n", resource.Resource, oldVal, newVal)
-					}
-				}
-			},
-		},
-	)
-
-	return &controller{
+	c := &controller{
 		client:   client,
 		informer: inf,
+		queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "kluster"),
 	}
 
+	inf.AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: c.handleAdd,
+			DeleteFunc: c.handleDelete,
+			UpdateFunc: c.handleUpdate,
+		},
+	)
+	return c
+
+}
+
+func (c *controller) handleAdd(obj interface{}) {
+		metaObj, err := meta.Accessor(obj)
+		if err != nil {
+			fmt.Printf("Error accessing metadata: %v", err)
+			return
+		}
+
+		// Get the resource's labels
+		 labels := metaObj.GetLabels()
+
+		 fmt.Println("resource was created")
+		// Check if the resource has a specific label
+		 if val, ok := labels["foo"]; ok {
+			fmt.Printf("Resource with label 'foo' was created: %s\n", val)
+			c.queue.Add(obj)
+		 }
+}
+
+func (c *controller) handleDelete(obj interface{}){
+	metaObj, err := meta.Accessor(obj)
+	if err != nil {
+		fmt.Printf("Error accessing metadata: %v", err)
+		return
+	}
+
+	// Get the resource's labels
+	labels := metaObj.GetLabels()
+
+	// fmt.Println("resource was created")
+	// Check if the resource has a specific label
+	if val, ok := labels["foo"]; ok {
+		fmt.Printf("Resource with label 'foo' was deleted: %s\n", val)
+	}
+}
+
+func (c *controller) handleUpdate(oldObj, newObj interface{}){
+	oldMetaObj, err := meta.Accessor(oldObj)
+	if err != nil {
+		log.Printf("Error accessing old metadata: %v", err)
+		return
+	}
+	newMetaObj, err := meta.Accessor(newObj)
+	if err != nil {
+		log.Printf("Error accessing new metadata: %v", err)
+		return
+	}
+
+	// Get the old and new resource's labels
+	oldLabels := oldMetaObj.GetLabels()
+	newLabels := newMetaObj.GetLabels()
+
+	// Check if the label value has changed
+	if oldVal, ok := oldLabels["foo"]; ok {
+		if newVal, ok := newLabels["foo"]; ok && oldVal != newVal {
+			fmt.Printf("Resource with label 'foo' was updated: %s -> %s\n", oldVal, newVal)
+		}
+	}
 }
 
 func (c *controller) run(ch <-chan struct{}) {
