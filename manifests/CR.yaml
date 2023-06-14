@@ -3,7 +3,7 @@ kind: Kluster
 metadata:
   name: kluster-0
   labels:
-    foo: bar2
+    foo: bar1
 spec:
   name: kluster-0
   region: "nyc1"

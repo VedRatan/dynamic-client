@@ -23,9 +23,10 @@ type controller struct {
 	client   metadata.Interface
 	informer cache.SharedIndexInformer
 	queue    workqueue.RateLimitingInterface
+	lister   cache.GenericLister
 }
 
-func newController(client metadata.Interface, metaInformerFactory metadatainformer.SharedInformerFactory, resource schema.GroupVersionResource) *controller {
+func newController(client metadata.Interface, metaInformerFactory metadatainformer.SharedInformerFactory, resource schema.GroupVersionResource, lister cache.GenericLister) *controller {
 	// inf := dynInformerFactory.ForResource(schema.GroupVersionResource{
 	// 	Group:    "vedratan.dev",
 	// 	Version:  "v1alpha1",
@@ -38,6 +39,7 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 		client:   client,
 		informer: inf,
 		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "kluster"),
+		lister: lister,
 	}
 
 	inf.AddEventHandler(
@@ -102,7 +104,7 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 		return
 	}
 	newMetaObj, err := meta.Accessor(newObj)
-	if err != nil {
+	if err != nil {	
 		log.Printf("Error accessing new metadata: %v", err)
 		return
 	}
@@ -146,6 +148,12 @@ func (c *controller) worker() {
 }
 
 func (c *controller) processItem() bool {
+	item, shutdown := c.queue.Get()
+	if shutdown {
+		return false
+	}
 
+	fmt.Printf("%+v\n", item)
+	defer c.queue.Forget(item)
 	return true
 }

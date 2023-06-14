@@ -11,6 +11,7 @@ import (
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 
@@ -43,7 +44,7 @@ func main() {
 
 	metadataClient, err := metadata.NewForConfig(config)
 
-	if err != nil{
+	if err != nil {
 		fmt.Printf("error %s in getting dynamic client\n", err.Error())
 	}
 
@@ -72,14 +73,18 @@ func main() {
 	})
 	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
 	fmt.Printf("%+v\n", resource)
-	
-	c := newController(metadataClient, infFactory, resource)
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	lister := cache.NewGenericLister(indexer,schema.GroupResource{
+		Group: resource.Group,
+		Resource: resource.Resource,
+	})
+
+	c := newController(metadataClient, infFactory, resource, lister)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	infFactory.Start(ctx.Done())
 
-	
 	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
