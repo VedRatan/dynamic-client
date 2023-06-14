@@ -11,7 +11,6 @@ import (
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 
@@ -73,13 +72,7 @@ func main() {
 	})
 	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
 	fmt.Printf("%+v\n", resource)
-	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
-	lister := cache.NewGenericLister(indexer,schema.GroupResource{
-		Group: resource.Group,
-		Resource: resource.Resource,
-	})
-
-	c := newController(metadataClient, infFactory, resource, lister)
+	c := newController(metadataClient, infFactory, resource)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
