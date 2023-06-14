@@ -86,15 +86,13 @@ func (c *controller) handleDelete(obj interface{}) {
 
 	// fmt.Println("resource was created")
 	// Check if the resource has a specific label
-	if val, ok := labels["foo"]; ok {
-		fmt.Printf("Resource with label 'foo' was deleted: %s\n", val)
+		fmt.Printf("Resource with label 'foo' was deleted: %s\n", labels["foo"])
 		key, err := cache.MetaNamespaceKeyFunc(obj)
 		if err != nil {
 			logger.Error(err, "failed to extract name")
 			return
 		}
 		c.queue.Add(key)
-	}
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
