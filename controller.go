@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/gardener/controller-manager-library/pkg/logger"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -21,7 +22,7 @@ import (
 type controller struct {
 	client   metadata.Interface
 	informer cache.SharedIndexInformer
-	queue            workqueue.RateLimitingInterface
+	queue    workqueue.RateLimitingInterface
 }
 
 func newController(client metadata.Interface, metaInformerFactory metadatainformer.SharedInformerFactory, resource schema.GroupVersionResource) *controller {
@@ -36,12 +37,12 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 	c := &controller{
 		client:   client,
 		informer: inf,
-		queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "kluster"),
+		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "kluster"),
 	}
 
 	inf.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			AddFunc: c.handleAdd,
+			AddFunc:    c.handleAdd,
 			DeleteFunc: c.handleDelete,
 			UpdateFunc: c.handleUpdate,
 		},
@@ -51,24 +52,29 @@ func newController(client metadata.Interface, metaInformerFactory metadatainform
 }
 
 func (c *controller) handleAdd(obj interface{}) {
-		metaObj, err := meta.Accessor(obj)
+	metaObj, err := meta.Accessor(obj)
+	if err != nil {
+		fmt.Printf("Error accessing metadata: %v", err)
+		return
+	}
+
+	// Get the resource's labels
+	labels := metaObj.GetLabels()
+
+	fmt.Println("resource was created")
+	// Check if the resource has a specific label
+	if val, ok := labels["foo"]; ok {
+		fmt.Printf("Resource with label 'foo' was created: %s\n", val)
+		key, err := cache.MetaNamespaceKeyFunc(obj)
 		if err != nil {
-			fmt.Printf("Error accessing metadata: %v", err)
+			logger.Error(err, "failed to extract name")
 			return
 		}
-
-		// Get the resource's labels
-		 labels := metaObj.GetLabels()
-
-		 fmt.Println("resource was created")
-		// Check if the resource has a specific label
-		 if val, ok := labels["foo"]; ok {
-			fmt.Printf("Resource with label 'foo' was created: %s\n", val)
-			c.queue.Add(obj)
-		 }
+		c.queue.Add(key)
+	}
 }
 
-func (c *controller) handleDelete(obj interface{}){
+func (c *controller) handleDelete(obj interface{}) {
 	metaObj, err := meta.Accessor(obj)
 	if err != nil {
 		fmt.Printf("Error accessing metadata: %v", err)
@@ -82,10 +88,16 @@ func (c *controller) handleDelete(obj interface{}){
 	// Check if the resource has a specific label
 	if val, ok := labels["foo"]; ok {
 		fmt.Printf("Resource with label 'foo' was deleted: %s\n", val)
+		key, err := cache.MetaNamespaceKeyFunc(obj)
+		if err != nil {
+			logger.Error(err, "failed to extract name")
+			return
+		}
+		c.queue.Add(key)
 	}
 }
 
-func (c *controller) handleUpdate(oldObj, newObj interface{}){
+func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	oldMetaObj, err := meta.Accessor(oldObj)
 	if err != nil {
 		log.Printf("Error accessing old metadata: %v", err)
@@ -105,6 +117,13 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}){
 	if oldVal, ok := oldLabels["foo"]; ok {
 		if newVal, ok := newLabels["foo"]; ok && oldVal != newVal {
 			fmt.Printf("Resource with label 'foo' was updated: %s -> %s\n", oldVal, newVal)
+
+			key, err := cache.MetaNamespaceKeyFunc(newObj)
+			if err != nil {
+				logger.Error(err, "failed to extract name")
+				return
+			}
+			c.queue.Add(key)
 		}
 	}
 }
@@ -129,5 +148,6 @@ func (c *controller) worker() {
 }
 
 func (c *controller) processItem() bool {
+
 	return true
 }
