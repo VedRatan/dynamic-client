@@ -7,6 +7,7 @@ import (
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 	"github.com/gardener/controller-manager-library/pkg/logger"
+
 	//"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/util/workqueue"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
@@ -42,7 +44,7 @@ func newController(client metadata.Interface, metainformer informers.GenericInfo
 		client:   client,
 		informer: inf,
 		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "kluster"),
-		lister: lister,
+		lister:   lister,
 	}
 
 	inf.AddEventHandler(
@@ -70,12 +72,12 @@ func (c *controller) handleAdd(obj interface{}) {
 	// Check if the resource has a specific label
 	// if val, ok := labels["foo"]; ok {
 	// 	fmt.Printf("Resource with label 'foo' was created: %s\n", val)
-		key, err := cache.MetaNamespaceKeyFunc(obj)
-		if err != nil {
-			logger.Error(err, "failed to extract name")
-			return
-		}
-		c.queue.Add(key)
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		logger.Error(err, "failed to extract name")
+		return
+	}
+	c.queue.Add(key)
 	// }
 }
 
@@ -91,13 +93,13 @@ func (c *controller) handleDelete(obj interface{}) {
 
 	// fmt.Println("resource was created")
 	// Check if the resource has a specific label
-		// fmt.Printf("Resource with label 'foo' was deleted: %s\n", labels["foo"])
-		key, err := cache.MetaNamespaceKeyFunc(obj)
-		if err != nil {
-			logger.Error(err, "failed to extract name")
-			return
-		}
-		c.queue.Add(key)
+	// fmt.Printf("Resource with label 'foo' was deleted: %s\n", labels["foo"])
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		logger.Error(err, "failed to extract name")
+		return
+	}
+	c.queue.Add(key)
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
@@ -107,7 +109,7 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	// 	return
 	// }
 	// newMetaObj, err := meta.Accessor(newObj)
-	// if err != nil {	
+	// if err != nil {
 	// 	log.Printf("Error accessing new metadata: %v", err)
 	// 	return
 	// }
@@ -121,12 +123,12 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	// 	if newVal, ok := newLabels["foo"]; ok && oldVal != newVal {
 	// 		fmt.Printf("Resource with label 'foo' was updated: %s -> %s\n", oldVal, newVal)
 
-			key, err := cache.MetaNamespaceKeyFunc(newObj)
-			if err != nil {
-				logger.Error(err, "failed to extract name")
-				return
-			}
-	 		c.queue.Add(key)
+	key, err := cache.MetaNamespaceKeyFunc(newObj)
+	if err != nil {
+		logger.Error(err, "failed to extract name")
+		return
+	}
+	c.queue.Add(key)
 	// 	}
 	// }
 }
@@ -169,21 +171,25 @@ func (c *controller) processItem() bool {
 }
 
 func (c *controller) reconcile(itemKey string) error {
-	obj, exists, err := c.informer.GetIndexer().GetByKey(itemKey)
 	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
+	namespace, name, err := cache.SplitMetaNamespaceKey(itemKey)
 	if err != nil {
-		return fmt.Errorf("failed to get object '%s': %w", itemKey, err)
+		return err
 	}
-
-	if !exists {
-		// Resource has been deleted, no further action needed
-		return nil
+	obj, err := c.lister.ByNamespace(namespace).Get(name)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// resource doesn't exist anymore, nothing much to do at this point
+			return nil
+		}
+		// there was an error, return it to requeue the key
+		return err
 	}
-
+	// we now know the observed state, check against the desired state...
 	// Assuming the object is of type metav1.Object, you can replace it with the correct type
 	metaObj, ok := obj.(v1.Object)
 	// fmt.Printf("the object is: %+v\n", metaObj)
-	
+
 	if !ok {
 		return fmt.Errorf("object '%s' is not of type metav1.Object", itemKey)
 	}
@@ -208,12 +214,12 @@ func (c *controller) reconcile(itemKey string) error {
 
 	fmt.Printf("the time to expire is: %s\n", deletionTime)
 
-	err = c.client.Resource(resource).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
-		}
+	err = c.client.Resource(resource).Delete(context.Background(), name, v1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+	}
 
-		fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+	fmt.Printf("Resource '%s' has been deleted\n", itemKey)
 
 	// if time.Now().After(deletionTime) {
 	// 	// Perform the deletion of the resource
