@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 	"github.com/gardener/controller-manager-library/pkg/logger"
+	//"k8s.io/apimachinery/pkg/api/meta"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	// "k8s.io/client-go/dynamic"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
-	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/util/workqueue"
 
 	// "k8s.io/client-go/dynamic/dynamicinformer"
@@ -24,15 +28,15 @@ type controller struct {
 	lister   cache.GenericLister
 }
 
-func newController(client metadata.Interface, metaInformerFactory metadatainformer.SharedInformerFactory, resource schema.GroupVersionResource) *controller {
+func newController(client metadata.Interface, metainformer informers.GenericInformer, resource schema.GroupVersionResource) *controller {
 	// inf := dynInformerFactory.ForResource(schema.GroupVersionResource{
 	// 	Group:    "vedratan.dev",
 	// 	Version:  "v1alpha1",
 	// 	Resource: "klusters",
 	// }).Informer()
 
-	inf := metaInformerFactory.ForResource(resource).Informer()
-	lister := metaInformerFactory.ForResource(resource).Lister()
+	inf := metainformer.Informer()
+	lister := metainformer.Lister()
 
 	c := &controller{
 		client:   client,
@@ -154,5 +158,71 @@ func (c *controller) processItem() bool {
 
 	fmt.Printf("%+v\n", item)
 	defer c.queue.Forget(item)
+	err := c.reconcile(item.(string))
+	if err != nil {
+		fmt.Printf("reconciliation failed err: %s, for resource %s\n", err.Error(), item)
+		c.queue.AddRateLimited(item)
+		return true
+	}
+	c.queue.Done(item)
 	return true
+}
+
+func (c *controller) reconcile(itemKey string) error {
+	obj, exists, err := c.informer.GetIndexer().GetByKey(itemKey)
+	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
+	if err != nil {
+		return fmt.Errorf("failed to get object '%s': %w", itemKey, err)
+	}
+
+	if !exists {
+		// Resource has been deleted, no further action needed
+		return nil
+	}
+
+	// Assuming the object is of type metav1.Object, you can replace it with the correct type
+	metaObj, ok := obj.(v1.Object)
+	// fmt.Printf("the object is: %+v\n", metaObj)
+	
+	if !ok {
+		return fmt.Errorf("object '%s' is not of type metav1.Object", itemKey)
+	}
+
+	labels := metaObj.GetLabels()
+	ttlValue, ok := labels["ttl"]
+
+	if !ok {
+		// No 'ttl' label present, no further action needed
+		return nil
+	}
+
+	ttlDuration, err := time.ParseDuration(ttlValue)
+	if err != nil {
+		// Invalid TTL duration, log an error and skip deletion
+		logger.Error(err, "failed to parse TTL duration", "item", itemKey, "ttlValue", ttlValue)
+		return nil
+	}
+
+	creationTime := metaObj.GetCreationTimestamp().Time
+	deletionTime := creationTime.Add(ttlDuration)
+
+	fmt.Printf("the time to expire is: %s\n", deletionTime)
+
+	err = c.client.Resource(resource).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+		}
+
+		fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+
+	// if time.Now().After(deletionTime) {
+	// 	// Perform the deletion of the resource
+	// 	err := c.client.Resource(resource).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+	// 	}
+
+	// 	fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+	// }
+	return nil
 }

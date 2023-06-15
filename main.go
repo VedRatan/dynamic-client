@@ -68,11 +68,12 @@ func main() {
 	// }
 
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *v1.ListOptions) {
-		options.LabelSelector = "foo"
+		options.LabelSelector = "ttl"
 	})
 	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
 	fmt.Printf("%+v\n", resource)
-	c := newController(metadataClient, infFactory, resource)
+	metainformer := infFactory.ForResource(resource)
+	c := newController(metadataClient, metainformer, resource)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

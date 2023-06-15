@@ -3,7 +3,7 @@ kind: Kluster
 metadata:
   name: kluster-1
   labels:
-    bar: bar2
+    cleanup: 15s
 spec:
   name: kluster-1
   region: "nyc1"
