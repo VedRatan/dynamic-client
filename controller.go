@@ -148,8 +148,11 @@ func (c *controller) run(ch <-chan struct{}) {
 }
 
 func (c *controller) worker() {
-	for c.processItem() {
-
+	for {
+		if !c.processItem() {
+			// No more items in the queue, exit the loop
+			break
+		}
 	}
 }
 
