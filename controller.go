@@ -224,7 +224,7 @@ func (c *controller) reconcile(itemKey string) error {
 
 	for true {
 		if time.Now().After(deletionTime) {
-			// Perform the deletion of the resource
+			// Perform the deletion of the resource this will cover the logic of the time which has surpassed to delete the resource or which has not yet surpassed.
 			err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
