@@ -14,10 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	// "k8s.io/client-go/dynamic"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/util/workqueue"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
@@ -187,10 +188,10 @@ func (c *controller) reconcile(itemKey string) error {
 	}
 	// we now know the observed state, check against the desired state...
 	// Assuming the object is of type metav1.Object, you can replace it with the correct type
-	metaObj, ok := obj.(v1.Object)
+	metaObj, error := meta.Accessor(obj)
 	// fmt.Printf("the object is: %+v\n", metaObj)
 
-	if !ok {
+	if error != nil {
 		return fmt.Errorf("object '%s' is not of type metav1.Object", itemKey)
 	}
 
@@ -214,21 +215,24 @@ func (c *controller) reconcile(itemKey string) error {
 
 	fmt.Printf("the time to expire is: %s\n", deletionTime)
 
-	err = c.client.Resource(resource).Delete(context.Background(), name, v1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
-	}
-
-	fmt.Printf("Resource '%s' has been deleted\n", itemKey)
-
-	// if time.Now().After(deletionTime) {
-	// 	// Perform the deletion of the resource
-	// 	err := c.client.Resource(resource).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
-	// 	}
-
-	// 	fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+	// err = c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), name, v1.DeleteOptions{})
+	// if err != nil {
+	// 	return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
 	// }
-	return nil
+
+	// fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+
+	for true {
+		if time.Now().After(deletionTime) {
+			// Perform the deletion of the resource
+			err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+			}
+	
+			fmt.Printf("Resource '%s' has been deleted\n", itemKey)
+			return nil
+		}
+	}
+	return fmt.Errorf("Unable to delete the resource %s after the time %s \n", itemKey, deletionTime)
 }
