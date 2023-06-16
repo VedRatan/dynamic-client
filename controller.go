@@ -224,7 +224,6 @@ func (c *controller) reconcile(itemKey string) error {
 	// }
 
 	// fmt.Printf("Resource '%s' has been deleted\n", itemKey)
-	timeRemaining := deletionTime.Sub(time.Now())
 	// for true {
 	// 	if time.Now().After(deletionTime) {
 	// 		// Perform the deletion of the resource this will cover the logic of the time which has surpassed to delete the resource or which has not yet surpassed.
@@ -238,28 +237,41 @@ func (c *controller) reconcile(itemKey string) error {
 	// 	}
 	// }
 
-	if timeRemaining > 0 {
-		timer := time.NewTimer(timeRemaining)
+	// if timeRemaining > 0 {
+	// 	timer := time.NewTimer(timeRemaining)
 	
-		select {
-		case <-timer.C:
-			// Perform the deletion of the resource
-			err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
-			}
+	// 	select {
+	// 	case <-timer.C:
+	// 		// Perform the deletion of the resource
+	// 		err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+	// 		if err != nil {
+	// 			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+	// 		}
 	
-			fmt.Printf("Resource '%s' has been deleted\n", itemKey)
-			return nil
+	// 		fmt.Printf("Resource '%s' has been deleted\n", itemKey)	
+	// 		return nil
+	// 	}
+	// } else {
+	// 	err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+	// 		if err != nil {
+	// 			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
+	// 		}
+	
+	// 		fmt.Printf("inside else Resource '%s' has been deleted\n", itemKey)
+	// 		return nil
+	// }
+
+	if time.Now().After(deletionTime) {
+		err = c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
 		}
+		fmt.Printf("Resource '%s' has been deleted\n", itemKey)
 	} else {
-		err := c.client.Resource(resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
-			}
-	
-			fmt.Printf("inside else Resource '%s' has been deleted\n", itemKey)
-			return nil
+		// Calculate the remaining time until deletion
+		timeRemaining := deletionTime.Sub(time.Now())
+		// Add the item back to the queue after the remaining time
+		c.queue.AddAfter(itemKey, timeRemaining)
 	}
-	// return fmt.Errorf("Unable to delete the resource %s after the time %s \n", itemKey, deletionTime)
+	 return nil
 }
