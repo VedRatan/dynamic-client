@@ -10,7 +10,8 @@ import (
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    "k8s.io/api/core/v1"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 
@@ -47,39 +48,36 @@ func main() {
 		fmt.Printf("error %s in getting dynamic client\n", err.Error())
 	}
 
-	// unsObject, err:= dynamicClient.Resource(schema.GroupVersionResource{
-	// 	Group: "vedratan.dev",
-	// 	Version: "v1alpha1",
-	// 	Resource: "klusters",
-	// }).Namespace("default").Get(context.Background(), "kluster-0", v1.GetOptions{})
-
-	// if err != nil {
-	// 	fmt.Printf("error %s getting resource from dynamic client\n", err.Error())
-	// }
 
 	k := v1alpha1.Kluster{}
-	// getting and setting fields on unsObject
-	//fmt.Printf("Go teh object %s\n", unsObject.GetName())
 
-	// convert unsObject into a typed object
-	// err = runtime.DefaultUnstructuredConverter.FromUnstructured(unsObject.UnstructuredContent(), &k)
-	// if err != nil {
-	// 	fmt.Printf("error %s, converting unstructured to kluster type", err.Error())
-	// }
-
-	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *v1.ListOptions) {
+	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
 		options.LabelSelector = "ttl"
 	})
-	resource := v1alpha1.SchemeGroupVersion.WithResource("klusters")
-	fmt.Printf("%+v\n", resource)
-	metainformer := infFactory.ForResource(resource)
-	c := newController(metadataClient, metainformer, resource)
+	kluster := v1alpha1.SchemeGroupVersion.WithResource("klusters")
+	pod := v1.SchemeGroupVersion.WithResource("pods")
+	configmap := v1.SchemeGroupVersion.WithResource("configmaps")
+	fmt.Printf("%+v\n", kluster)
+	fmt.Printf("%+v\n", pod)
+	fmt.Printf("%+v\n", configmap)
+	klusterinformer := infFactory.ForResource(kluster)
+	podinformer := infFactory.ForResource(pod)
+	configmapinformer := infFactory.ForResource(configmap)
+	c := newController(metadataClient, klusterinformer, podinformer, configmapinformer)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	infFactory.Start(ctx.Done())
 
-	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), c.klusterinformer.HasSynced) {
+		fmt.Print("waiting for the cache to be synced...\n")
+	}
+
+	if !cache.WaitForCacheSync(ctx.Done(), c.podinformer.HasSynced) {
+		fmt.Print("waiting for the cache to be synced...\n")
+	}
+
+	if !cache.WaitForCacheSync(ctx.Done(), c.cminformer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
