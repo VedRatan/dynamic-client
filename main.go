@@ -50,38 +50,47 @@ func main() {
 
 
 	k := v1alpha1.Kluster{}
+	
 
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
 		options.LabelSelector = "ttl"
 	})
-	kluster := v1alpha1.SchemeGroupVersion.WithResource("klusters")
-	pod := v1.SchemeGroupVersion.WithResource("pods")
-	configmap := v1.SchemeGroupVersion.WithResource("configmaps")
-	fmt.Printf("%+v\n", kluster)
-	fmt.Printf("%+v\n", pod)
-	fmt.Printf("%+v\n", configmap)
+	
+
+    kluster := v1alpha1.SchemeGroupVersion.WithResource("klusters")
 	klusterinformer := infFactory.ForResource(kluster)
+	klusterController := newController(metadataClient, klusterinformer, kluster, "kluster")
+
+
+	pod := v1.SchemeGroupVersion.WithResource("pods")
 	podinformer := infFactory.ForResource(pod)
+	podController := newController(metadataClient, podinformer, pod, "pod")
+
+
+	configmap := v1.SchemeGroupVersion.WithResource("configmaps")
 	configmapinformer := infFactory.ForResource(configmap)
-	c := newController(metadataClient, klusterinformer, podinformer, configmapinformer)
+	configmapController := newController(metadataClient, configmapinformer, configmap, "configmap")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	infFactory.Start(ctx.Done())
 
-	if !cache.WaitForCacheSync(ctx.Done(), c.klusterinformer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), klusterController.informer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
-	if !cache.WaitForCacheSync(ctx.Done(), c.podinformer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), podController.informer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
-	if !cache.WaitForCacheSync(ctx.Done(), c.cminformer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), configmapController.informer.HasSynced) {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
-	c.run(ctx.Done())
+    klusterController.run(ctx.Done())
+	podController.run(ctx.Done())
+	configmapController.run(ctx.Done())
 	fmt.Printf("the concrete type that we got is: %v\n", k)
 
 }
