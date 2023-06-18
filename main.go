@@ -49,7 +49,7 @@ func main() {
 	}
 
 
-	k := v1alpha1.Kluster{}
+	// k := v1alpha1.Kluster{}
 	
 
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
@@ -88,9 +88,12 @@ func main() {
 		fmt.Print("waiting for the cache to be synced...\n")
 	}
 
-    klusterController.run(ctx.Done())
-	podController.run(ctx.Done())
-	configmapController.run(ctx.Done())
-	fmt.Printf("the concrete type that we got is: %v\n", k)
+    go klusterController.run(ctx.Done())
+	go podController.run(ctx.Done())
+	go configmapController.run(ctx.Done())
+
+	// Add a select statement to block the execution of the main goroutine
+	select{}
+	// fmt.Printf("the concrete type that we got is: %v\n", k)
 
 }
