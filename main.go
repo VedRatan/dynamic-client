@@ -14,9 +14,6 @@ import (
     "k8s.io/api/core/v1"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
-
-	// "k8s.io/client-go/dynamic"
-	// "k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
@@ -47,9 +44,6 @@ func main() {
 	if err != nil {
 		fmt.Printf("error %s in getting dynamic client\n", err.Error())
 	}
-
-
-	// k := v1alpha1.Kluster{}
 	
 
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
