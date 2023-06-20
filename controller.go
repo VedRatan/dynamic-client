@@ -52,31 +52,18 @@ func newController(client metadata.Interface, metainformer informers.GenericInfo
 func (c *controller) handleAdd(obj interface{}) {
 
 	fmt.Println("resource was created")
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		logger.Error(err, "failed to extract name")
-		return
-	}
-	c.queue.Add(key)
+	c.enqueue(obj)
 }
 
 func (c *controller) handleDelete(obj interface{}) {
-	key, err := cache.MetaNamespaceKeyFunc(obj)
-	if err != nil {
-		logger.Error(err, "failed to extract name")
-		return
-	}
-	c.queue.Add(key)
+	fmt.Println("resource was deleted")
+	c.enqueue(obj)
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	
-	key, err := cache.MetaNamespaceKeyFunc(newObj)
-	if err != nil {
-		logger.Error(err, "failed to extract name")
-		return
-	}
-	c.queue.Add(key)
+	fmt.Println("resource was updated")
+	c.enqueue(newObj)
 }
 
 func (c *controller) run(ch <-chan struct{}) {
@@ -85,6 +72,15 @@ func (c *controller) run(ch <-chan struct{}) {
 
 	// this will prevent the go coroutine from exiting or stopping
 	<-ch
+}
+
+func (c *controller) enqueue(obj  interface{}) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		logger.Error(err, "failed to extract name")
+		return
+	}
+	c.queue.Add(key)
 }
 
 func (c *controller) worker() {

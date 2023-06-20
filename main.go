@@ -10,8 +10,9 @@ import (
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-    "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/rest"
@@ -52,18 +53,18 @@ func main() {
 	
 
     kluster := v1alpha1.SchemeGroupVersion.WithResource("klusters")
-	klusterinformer := infFactory.ForResource(kluster)
-	klusterController := newController(metadataClient, klusterinformer, kluster, "kluster")
+	// klusterinformer := infFactory.ForResource(kluster)
+	klusterController := initializeController(infFactory, metadataClient, kluster, "kluster")
 
 
 	pod := v1.SchemeGroupVersion.WithResource("pods")
-	podinformer := infFactory.ForResource(pod)
-	podController := newController(metadataClient, podinformer, pod, "pod")
+	//podinformer := infFactory.ForResource(pod)
+	podController := initializeController(infFactory, metadataClient, pod, "pod")
 
 
 	configmap := v1.SchemeGroupVersion.WithResource("configmaps")
-	configmapinformer := infFactory.ForResource(configmap)
-	configmapController := newController(metadataClient, configmapinformer, configmap, "configmap")
+	 //configmapinformer := infFactory.ForResource(configmap)
+	configmapController := initializeController(infFactory, metadataClient, configmap, "configmap")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -90,4 +91,9 @@ func main() {
 	select{}
 	// fmt.Printf("the concrete type that we got is: %v\n", k)
 
+}
+
+func initializeController(infFactory metadatainformer.SharedInformerFactory,metadataClient metadata.Interface,resource schema.GroupVersionResource, resourceName string) *controller {
+	resourceInformer := infFactory.ForResource(resource)
+	return newController(metadataClient, resourceInformer, resource, resourceName)
 }
