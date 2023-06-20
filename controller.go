@@ -9,7 +9,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
@@ -18,29 +17,18 @@ import (
 )
 
 type controller struct {
-	client   metadata.Interface
-	informer cache.SharedIndexInformer
-	queue    workqueue.RateLimitingInterface
-	lister   cache.GenericLister
-	resource schema.GroupVersionResource
-	stopch   chan struct{}
+	client metadata.Getter
+	queue  workqueue.RateLimitingInterface
+	lister cache.GenericLister
 }
 
-func newController(client metadata.Interface, metainformer informers.GenericInformer, resource schema.GroupVersionResource, resourceName string) *controller {
-
-	inf := metainformer.Informer()
-	lister := metainformer.Lister()
-	fmt.Printf("%s \n", resource)
-
+func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
 	c := &controller{
-		client:   client,
-		informer: inf,
-		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), resourceName),
-		lister:   lister,
-		resource: resource,
+		client: client,
+		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		lister: metainformer.Lister(),
 	}
-
-	inf.AddEventHandler(
+	metainformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.handleAdd,
 			DeleteFunc: c.handleDelete,
@@ -48,11 +36,9 @@ func newController(client metadata.Interface, metainformer informers.GenericInfo
 		},
 	)
 	return c
-
 }
 
 func (c *controller) handleAdd(obj interface{}) {
-
 	fmt.Println("resource was created")
 	c.enqueue(obj)
 }
@@ -68,19 +54,10 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	c.enqueue(newObj)
 }
 
-func (c *controller) run(stopch <-chan struct{}) {
+func (c *controller) run(ctx context.Context) {
 	fmt.Println("starting controller ....")
-	go wait.Until(c.worker, 1*time.Second, stopch)
-
-	// this will prevent the go coroutine from exiting or stopping
-	// <-stopch
-	select {
-	case <-stopch:
-		// Stop signal received,stop the controller
-		return
-	default:
-		// Continue processing events or performing work
-	}
+	go wait.UntilWithContext(ctx, c.worker, 1*time.Second)
+	<-ctx.Done()
 }
 
 func (c *controller) enqueue(obj interface{}) {
@@ -92,7 +69,7 @@ func (c *controller) enqueue(obj interface{}) {
 	c.queue.Add(key)
 }
 
-func (c *controller) worker() {
+func (c *controller) worker(ctx context.Context) {
 	for {
 		if !c.processItem() {
 			// No more items in the queue, exit the loop
@@ -163,7 +140,7 @@ func (c *controller) reconcile(itemKey string) error {
 	fmt.Printf("the time to expire is: %s\n", deletionTime)
 
 	if time.Now().After(deletionTime) {
-		err = c.client.Resource(c.resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
+		err = c.client.Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to delete object '%s': %w", itemKey, err)
 		}
