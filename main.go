@@ -5,7 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
@@ -69,26 +72,45 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	infFactory.Start(ctx.Done())
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 
-	if !cache.WaitForCacheSync(ctx.Done(), klusterController.informer.HasSynced) {
-		fmt.Print("waiting for the cache to be synced...\n")
-	}
+	go func() {
+		infFactory.Start(ctx.Done())
 
-	if !cache.WaitForCacheSync(ctx.Done(), podController.informer.HasSynced) {
-		fmt.Print("waiting for the cache to be synced...\n")
-	}
+		cacheSynced := cache.WaitForCacheSync(ctx.Done(),
+			klusterController.informer.HasSynced,
+			podController.informer.HasSynced,
+			configmapController.informer.HasSynced,
+		)
 
-	if !cache.WaitForCacheSync(ctx.Done(), configmapController.informer.HasSynced) {
-		fmt.Print("waiting for the cache to be synced...\n")
-	}
+		if !cacheSynced {
+			log.Fatal("failed to sync cache")
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-interrupt:
+			cancel() // Cancel the context to stop informers and controllers
+		}
+	}()
+
 
     go klusterController.run(ctx.Done())
 	go podController.run(ctx.Done())
 	go configmapController.run(ctx.Done())
 
+
+	<-ctx.Done()
+
+	log.Println("Shutting down...")
+
+	// Stop informers
+	infFactory.Shutdown()
+
 	// Add a select statement to block the execution of the main goroutine
-	select{}
+	// select{}
 	// fmt.Printf("the concrete type that we got is: %v\n", k)
 
 }

@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 	"time"
+
 	"github.com/gardener/controller-manager-library/pkg/logger"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 )
 
 type controller struct {
@@ -22,13 +23,14 @@ type controller struct {
 	queue    workqueue.RateLimitingInterface
 	lister   cache.GenericLister
 	resource schema.GroupVersionResource
+	stopch   chan struct{}
 }
 
 func newController(client metadata.Interface, metainformer informers.GenericInformer, resource schema.GroupVersionResource, resourceName string) *controller {
 
 	inf := metainformer.Informer()
 	lister := metainformer.Lister()
-	fmt.Printf("%s \n",resource)
+	fmt.Printf("%s \n", resource)
 
 	c := &controller{
 		client:   client,
@@ -61,20 +63,27 @@ func (c *controller) handleDelete(obj interface{}) {
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
-	
+
 	fmt.Println("resource was updated")
 	c.enqueue(newObj)
 }
 
-func (c *controller) run(ch <-chan struct{}) {
+func (c *controller) run(stopch <-chan struct{}) {
 	fmt.Println("starting controller ....")
-	go wait.Until(c.worker, 1*time.Second, ch)
+	go wait.Until(c.worker, 1*time.Second, stopch)
 
 	// this will prevent the go coroutine from exiting or stopping
-	<-ch
+	// <-stopch
+	select {
+	case <-stopch:
+		// Stop signal received,stop the controller
+		return
+	default:
+		// Continue processing events or performing work
+	}
 }
 
-func (c *controller) enqueue(obj  interface{}) {
+func (c *controller) enqueue(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		logger.Error(err, "failed to extract name")
@@ -153,7 +162,6 @@ func (c *controller) reconcile(itemKey string) error {
 
 	fmt.Printf("the time to expire is: %s\n", deletionTime)
 
-
 	if time.Now().After(deletionTime) {
 		err = c.client.Resource(c.resource).Namespace(namespace).Delete(context.Background(), metaObj.GetName(), v1.DeleteOptions{})
 		if err != nil {
@@ -166,5 +174,5 @@ func (c *controller) reconcile(itemKey string) error {
 		// Add the item back to the queue after the remaining time
 		c.queue.AddAfter(itemKey, timeRemaining)
 	}
-	 return nil
+	return nil
 }
