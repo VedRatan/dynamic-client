@@ -113,6 +113,7 @@ func (c *controller) reconcile(itemKey string) error {
 	// we now know the observed state, check against the desired state...
 	// Assuming the object is of type metav1.Object, you can replace it with the correct type
 	metaObj, error := meta.Accessor(obj)
+	const ttlLabel = "kyverno.io/ttl"
 	// fmt.Printf("the object is: %+v\n", metaObj)
 
 	if error != nil {
@@ -120,7 +121,7 @@ func (c *controller) reconcile(itemKey string) error {
 	}
 
 	labels := metaObj.GetLabels()
-	ttlValue, ok := labels["kyverno.io/ttl"]
+	ttlValue, ok := labels[ttlLabel]
 
 
 	if !ok {
