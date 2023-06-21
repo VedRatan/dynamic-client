@@ -4,7 +4,7 @@ metadata:
   creationTimestamp: null
   labels:
     run: mypod
-    ttl: 10s
+    kyverno.io/ttl: 10s
   name: mypod
 spec:
   containers:

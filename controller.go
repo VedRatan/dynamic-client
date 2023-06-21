@@ -120,7 +120,7 @@ func (c *controller) reconcile(itemKey string) error {
 	}
 
 	labels := metaObj.GetLabels()
-	ttlValue, ok := labels["ttl"]
+	ttlValue, ok := labels["kyverno.io/ttl"]
 
 	if !ok {
 		// No 'ttl' label present, no further action needed

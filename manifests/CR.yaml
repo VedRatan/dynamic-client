@@ -3,7 +3,7 @@ kind: Kluster
 metadata:
   name: kluster-0
   labels:
-    ttl: 10s
+    kyverno.io/ttl: 10s
 spec:
   name: kluster-0
   region: "nyc1"
