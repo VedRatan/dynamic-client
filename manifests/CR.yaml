@@ -3,7 +3,9 @@ kind: Kluster
 metadata:
   name: kluster-0
   labels:
-    kyverno.io/ttl: 10s
+    # kyverno.io/ttl: "2023-08-04T003000Z"
+    # kyverno.io/ttl:  "2022-08-04T00:30:00Z"
+    kyverno.io/ttl: 2023-06-21
 spec:
   name: kluster-0
   region: "nyc1"

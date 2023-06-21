@@ -122,20 +122,42 @@ func (c *controller) reconcile(itemKey string) error {
 	labels := metaObj.GetLabels()
 	ttlValue, ok := labels["kyverno.io/ttl"]
 
+
 	if !ok {
 		// No 'ttl' label present, no further action needed
 		return nil
 	}
 
+	var deletionTime time.Time
+
+	// Try parsing ttlValue as duration
 	ttlDuration, err := time.ParseDuration(ttlValue)
-	if err != nil {
-		// Invalid TTL duration, log an error and skip deletion
-		logger.Error(err, "failed to parse TTL duration", "item", itemKey, "ttlValue", ttlValue)
-		return nil
+	if err == nil {
+		creationTime := metaObj.GetCreationTimestamp().Time
+		deletionTime = creationTime.Add(ttlDuration)
+	} else {
+		layoutRFCC := "2006-01-02T150405Z"
+		// Try parsing ttlValue as a time in ISO 8601 format
+		deletionTime, err = time.Parse(layoutRFCC, ttlValue)
+		if err != nil {
+			layoutCustom := "2006-01-02"
+			deletionTime, err = time.Parse(layoutCustom, ttlValue)
+			if err != nil {
+				logger.Error(err, "failed to parse TTL duration", "item", itemKey, "ttlValue", ttlValue)
+				return nil
+			}
+		}
 	}
 
-	creationTime := metaObj.GetCreationTimestamp().Time
-	deletionTime := creationTime.Add(ttlDuration)
+	// ttlDuration, err := time.ParseDuration(ttlValue)
+	// if err != nil {
+	// 	// Invalid TTL duration, log an error and skip deletion
+	// 	logger.Error(err, "failed to parse TTL duration", "item", itemKey, "ttlValue", ttlValue)
+	// 	return nil
+	// }
+
+	// creationTime := metaObj.GetCreationTimestamp().Time
+	// deletionTime := creationTime.Add(ttlDuration)
 
 	fmt.Printf("the time to expire is: %s\n", deletionTime)
 

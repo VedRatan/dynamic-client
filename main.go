@@ -14,7 +14,6 @@ import (
 	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -54,12 +53,22 @@ func main() {
 
 	// factory
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
-		//options.LabelSelector = "kyverno.io/ttl"
-		labelSelector := labels.Set{
-			"kyverno.io/ttl":     "",
-			"kyverno.io/expires": "",
-		}.AsSelector()
-		options.LabelSelector = labelSelector.String()
+		 options.LabelSelector = "kyverno.io/ttl"
+
+
+		// options.LabelSelector = metav1.FormatLabelSelector(&metav1.LabelSelector{
+		// 	MatchExpressions: []metav1.LabelSelectorRequirement{
+		// 		{
+		// 			Key:      "kyverno.io/ttl",
+		// 			Operator: metav1.LabelSelectorOpExists,
+		// 		},
+		// 		{
+		// 			Key:      "kyverno.io/expires",
+		// 			Operator: metav1.LabelSelectorOpExists,
+		// 		},
+		// 	},
+		// })
+
 	})
 	defer infFactory.Shutdown()
 
