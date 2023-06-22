@@ -11,12 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/VedRatan/kluster/pkg/apis/vedratan.dev/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/rest"
@@ -51,32 +49,22 @@ func main() {
 		fmt.Printf("error %s in getting dynamic client\n", err.Error())
 	}
 
+	// discovery client
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		fmt.Printf("error %s in getting discovery client\n", err.Error())
+	}
+
 	// factory
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
-		 options.LabelSelector = "kyverno.io/ttl"
-
-
-		// options.LabelSelector = metav1.FormatLabelSelector(&metav1.LabelSelector{
-		// 	MatchExpressions: []metav1.LabelSelectorRequirement{
-		// 		{
-		// 			Key:      "kyverno.io/ttl",
-		// 			Operator: metav1.LabelSelectorOpExists,
-		// 		},
-		// 		{
-		// 			Key:      "kyverno.io/expires",
-		// 			Operator: metav1.LabelSelectorOpExists,
-		// 		},
-		// 	},
-		// })
-
+		options.LabelSelector = "kyverno.io/ttl"
 	})
 	defer infFactory.Shutdown()
 
-	// resources
-	resources := []schema.GroupVersionResource{
-		v1alpha1.SchemeGroupVersion.WithResource("klusters"),
-		v1.SchemeGroupVersion.WithResource("pods"),
-		v1.SchemeGroupVersion.WithResource("configmaps"),
+	// discover resources
+	resources, err := discoverResources(discoveryClient)
+	if err != nil {
+		fmt.Printf("error %s in discovering resources\n", err.Error())
 	}
 
 	// context
@@ -103,3 +91,52 @@ func main() {
 	// shutdown
 	<-ctx.Done()
 }
+
+func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
+	resources := []schema.GroupVersionResource{}
+
+	apiResourceList, err := discoveryClient.ServerPreferredResources()
+	if err != nil {
+		return resources, err
+	}
+
+	requiredVerbs := []string{"list", "watch", "delete"}
+
+	for _, apiResourceList := range apiResourceList {
+		for _, apiResource := range apiResourceList.APIResources {
+			if containsAllVerbs(apiResource.Verbs, requiredVerbs) {
+				groupVersion, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
+				if err != nil {
+					return resources, err
+				}
+
+				resource := schema.GroupVersionResource{
+					Group:    groupVersion.Group,
+					Version:  groupVersion.Version,
+					Resource: apiResource.Name,
+				}
+
+				resources = append(resources, resource)
+			}
+		}
+	}
+
+	return resources, nil
+}
+
+func containsAllVerbs(supportedVerbs []string, requiredVerbs []string) bool {
+	for _, requiredVerb := range requiredVerbs {
+		found := false
+		for _, verb := range supportedVerbs {
+			if verb == requiredVerb {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+

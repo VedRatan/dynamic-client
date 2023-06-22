@@ -19,12 +19,11 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/sirupsen/logrus v1.4.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.27.2
+	k8s.io/api v0.27.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f // indirect
 )
 
 require (
-	github.com/VedRatan/kluster v0.0.0-20230608135447-d372d0f5cc17
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gardener/controller-manager-library v0.2.0
 	github.com/go-logr/logr v1.2.4 // indirect
