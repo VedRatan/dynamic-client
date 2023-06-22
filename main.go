@@ -97,17 +97,16 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 
 	apiResourceList, err := discoveryClient.ServerPreferredResources()
 	if err != nil {
-		if discovery.IsGroupDiscoveryFailedError(err) {
+		if discovery.IsGroupDiscoveryFailedError(err) { // the error should be recoverable, let's log missing groups and process the partial results we received
 			err := err.(*discovery.ErrGroupDiscoveryFailed)
 			for gv, groupErr := range err.Groups {
 				// Handling the specific group error
 				log.Printf("Error in discovering group %s: %v", gv.String(), groupErr)
 			}
-		} else {
+		} else { // if not a discovery error we should return early
 			// Handling other non-group-specific errors
-			log.Printf("Error during discovery: %v", err)
+			return nil, err
 		}
-		return resources, err
 	}
 	requiredVerbs := []string{"list", "watch", "delete"}
 
