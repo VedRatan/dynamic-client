@@ -97,9 +97,18 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 
 	apiResourceList, err := discoveryClient.ServerPreferredResources()
 	if err != nil {
+		if discovery.IsGroupDiscoveryFailedError(err) {
+			err := err.(*discovery.ErrGroupDiscoveryFailed)
+			for gv, groupErr := range err.Groups {
+				// Handling the specific group error
+				log.Printf("Error in discovering group %s: %v", gv.String(), groupErr)
+			}
+		} else {
+			// Handling other non-group-specific errors
+			log.Printf("Error during discovery: %v", err)
+		}
 		return resources, err
 	}
-
 	requiredVerbs := []string{"list", "watch", "delete"}
 
 	for _, apiResourceList := range apiResourceList {
