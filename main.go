@@ -75,10 +75,14 @@ func main() {
 	defer infFactory.Shutdown()
 
 	// discover resources
-	resources, err := discoverResources(discoveryClient, *authClient)
+	resources, err := discoverResources(discoveryClient)
+
 	if err != nil {
 		fmt.Printf("error %s in discovering resources\n", err.Error())
 	}
+
+	// filter out the resources that are allowed to get, list and deleted by the service account
+	validResources := filterPermissionsResource(resources, *authClient)
 
 	// context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -86,7 +90,7 @@ func main() {
 
 	// controllers
 	var controllers []*controller
-	for _, resource := range resources {
+	for _, resource := range validResources {
 		informer := infFactory.ForResource(resource)
 		client := metadataClient.Resource(resource)
 		controllers = append(controllers, newController(client, informer))
@@ -105,7 +109,7 @@ func main() {
 	<-ctx.Done()
 }
 
-func discoverResources( discoveryClient discovery.DiscoveryInterface, authClient authorizationv1client.AuthorizationV1Client) ([]schema.GroupVersionResource, error) {
+func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
 	resources := []schema.GroupVersionResource{}
 
 	apiResourceList, err := discoveryClient.ServerPreferredResources()
@@ -122,9 +126,6 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface, authClient
 		}
 	}
 	requiredVerbs := []string{"list", "watch", "delete"}
-	s := self{
-		client: authClient.SelfSubjectAccessReviews(),
-	}
 	for _, apiResourceList := range apiResourceList {
 		for _, apiResource := range apiResourceList.APIResources {
 			if containsAllVerbs(apiResource.Verbs, requiredVerbs) {
@@ -139,15 +140,27 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface, authClient
 					Resource: apiResource.Name,
 				}
 				
-				// Check if the service account has the necessary permissions
-				if s.hasResourcePermissions(resource) {
 					resources = append(resources, resource)
-				}
 			}
 		}
 	}
 
 	return resources, nil
+}
+
+func filterPermissionsResource(resources[] schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Client) ([]schema.GroupVersionResource) {
+	 validResources := []schema.GroupVersionResource{}
+	 s := self{
+		client: authClient.SelfSubjectAccessReviews(),
+	}
+	 for _, resource := range resources {
+		// Check if the service account has the necessary permissions
+		if(s.hasResourcePermissions(resource)){
+			validResources = append(validResources, resource)
+		}
+		
+	 }
+	 return validResources
 }
 
 func (c self) hasResourcePermissions( resource schema.GroupVersionResource) bool {
