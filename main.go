@@ -82,7 +82,8 @@ func main() {
 	}
 
 	// filter out the resources that are allowed to get, list and deleted by the service account
-	validResources := filterPermissionsResource(resources, *authClient)
+	var validResources []schema.GroupVersionResource
+	validResources = filterPermissionsResource(resources, *authClient)
 
 	// context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
