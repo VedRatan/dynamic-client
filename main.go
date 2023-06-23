@@ -14,13 +14,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
+	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/discovery"
+
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 )
+
+type self struct {
+	client authorizationv1client.SelfSubjectAccessReviewInterface
+}
 
 func main() {
 	// flags
@@ -55,6 +62,12 @@ func main() {
 		fmt.Printf("error %s in getting discovery client\n", err.Error())
 	}
 
+	authClient, err := authorizationv1client.NewForConfig(config)
+
+	if(err != nil){
+		fmt.Printf("error %s in getting authorization client\n", err.Error())
+	}
+
 	// factory
 	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
 		options.LabelSelector = "kyverno.io/ttl"
@@ -62,7 +75,7 @@ func main() {
 	defer infFactory.Shutdown()
 
 	// discover resources
-	resources, err := discoverResources(discoveryClient)
+	resources, err := discoverResources(discoveryClient, *authClient)
 	if err != nil {
 		fmt.Printf("error %s in discovering resources\n", err.Error())
 	}
@@ -92,7 +105,7 @@ func main() {
 	<-ctx.Done()
 }
 
-func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
+func discoverResources( discoveryClient discovery.DiscoveryInterface, authClient authorizationv1client.AuthorizationV1Client) ([]schema.GroupVersionResource, error) {
 	resources := []schema.GroupVersionResource{}
 
 	apiResourceList, err := discoveryClient.ServerPreferredResources()
@@ -109,7 +122,9 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 		}
 	}
 	requiredVerbs := []string{"list", "watch", "delete"}
-
+	s := self{
+		client: authClient.SelfSubjectAccessReviews(),
+	}
 	for _, apiResourceList := range apiResourceList {
 		for _, apiResource := range apiResourceList.APIResources {
 			if containsAllVerbs(apiResource.Verbs, requiredVerbs) {
@@ -123,13 +138,46 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 					Version:  groupVersion.Version,
 					Resource: apiResource.Name,
 				}
-
-				resources = append(resources, resource)
+				
+				// Check if the service account has the necessary permissions
+				if s.hasResourcePermissions(resource) {
+					resources = append(resources, resource)
+				}
 			}
 		}
 	}
 
 	return resources, nil
+}
+
+func (c self) hasResourcePermissions( resource schema.GroupVersionResource) bool {
+
+	// Check if the service account has the required verbs (get, list, delete)
+	verbs := []string{"get", "list", "delete"}
+	for _, verb := range verbs {
+		subjectAccessReview := &authorizationv1.SelfSubjectAccessReview{
+			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+				ResourceAttributes: &authorizationv1.ResourceAttributes{
+					Namespace:  "default", // Set the appropriate namespace
+					Verb:       verb,
+					Group:      resource.Group,
+					Version:    resource.Version,
+					Resource:   resource.Resource,
+				},
+			},
+		}
+		result, err := c.client.Create(context.TODO(), subjectAccessReview, metav1.CreateOptions{})
+		if err != nil {
+			log.Printf("Failed to check resource permissions: %v", err)
+			return false
+		}
+		if !result.Status.Allowed {
+			log.Printf("Service account does not have '%s' permission for resource: %s", verb, resource.Resource)
+			return false
+		}
+	}
+
+	return true
 }
 
 func containsAllVerbs(supportedVerbs []string, requiredVerbs []string) bool {
