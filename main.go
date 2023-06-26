@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
-	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/discovery"
+	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
@@ -92,9 +92,10 @@ func main() {
 	// controllers
 	var controllers []*controller
 	for _, resource := range validResources {
-		informer := infFactory.ForResource(resource)
-		client := metadataClient.Resource(resource)
-		controllers = append(controllers, newController(client, informer))
+		// informer := infFactory.ForResource(resource)
+		// client := metadataClient.Resource(resource)
+		controller :=  reconcileController(resource, metadataClient, infFactory)
+		controllers = append(controllers, controller)
 	}
 
 	// cache sync
@@ -106,9 +107,57 @@ func main() {
 		go controller.run(ctx)
 	}
 
+	// Watch for new resource additions
+	go watchResourceAdditions(ctx, validResources, metadataClient, infFactory, discoveryClient)
+
 	// shutdown
 	<-ctx.Done()
 }
+
+func reconcileController(resource schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
+	client := metadataClient.Resource(resource)
+	informer := infFactory.ForResource(resource)
+	return newController(client, informer)
+}
+
+
+func watchResourceAdditions(ctx context.Context, resources []schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory, discoveryClient *discovery.DiscoveryClient) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Check if any new resources have been added
+			newResources, err := discoverResources(discoveryClient)
+			if err != nil {
+				log.Printf("Error discovering resources: %v", err)
+				continue
+			}
+
+			// Find new resources that are not already being controlled
+			for _, newResource := range newResources {
+				if !containsResource(resources, newResource) {
+					fmt.Printf("detected a new resource: %s\ncreating a controller for the same\n", newResource.String())
+					controller := reconcileController(newResource, metadataClient, infFactory)
+					go controller.run(ctx)
+					resources = append(resources, newResource)
+				}
+			}
+
+			time.Sleep(1 * time.Minute) // Adjust the sleep duration as per your requirement
+		}
+	}
+}
+
+func containsResource(resources []schema.GroupVersionResource, resource schema.GroupVersionResource) bool {
+	for _, r := range resources {
+		if r == resource {
+			return true
+		}
+	}
+	return false
+}
+
 
 func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
 	resources := []schema.GroupVersionResource{}
