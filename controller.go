@@ -20,6 +20,7 @@ type controller struct {
 	client metadata.Getter
 	queue  workqueue.RateLimitingInterface
 	lister cache.GenericLister
+	stopCh   chan struct{}
 }
 
 func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
@@ -27,6 +28,7 @@ func newController(client metadata.Getter, metainformer informers.GenericInforme
 		client: client,
 		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 		lister: metainformer.Lister(),
+		stopCh:   make(chan struct{}),
 	}
 	metainformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -57,7 +59,17 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 func (c *controller) run(ctx context.Context) {
 	fmt.Println("starting controller ....")
 	go wait.UntilWithContext(ctx, c.worker, 1*time.Second)
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+		fmt.Println("Stopping controller due to context signal ...")
+		close(c.stopCh)
+
+	case <-c.stopCh:
+		fmt.Println("Stopping controller due to stop channel signal ...")
+		close(c.stopCh)
+	}
+
+	fmt.Println("Controller stopped")
 }
 
 func (c *controller) enqueue(obj interface{}) {

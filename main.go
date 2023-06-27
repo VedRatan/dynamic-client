@@ -75,73 +75,94 @@ func main() {
 	defer infFactory.Shutdown()
 
 	// discover resources
-	resources, err := discoverResources(discoveryClient)
+	var resources []schema.GroupVersionResource
 
-	if err != nil {
-		fmt.Printf("error %s in discovering resources\n", err.Error())
-	}
+	// if err != nil {
+	// 	fmt.Printf("error %s in discovering resources\n", err.Error())
+	// }
 
-	// filter out the resources that are allowed to get, list and deleted by the service account
-	var validResources []schema.GroupVersionResource
-	validResources = filterPermissionsResource(resources, *authClient)
+	// // filter out the resources that are allowed to get, list and deleted by the service account
+	// var validResources []schema.GroupVersionResource
+	// validResources = filterPermissionsResource(resources, *authClient)
 
 	// context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// controllers
-	var controllers []*controller
-	for _, resource := range validResources {
-		// informer := infFactory.ForResource(resource)
-		// client := metadataClient.Resource(resource)
-		controller :=  reconcileController(resource, metadataClient, infFactory)
-		controllers = append(controllers, controller)
-	}
+	 // controllers
+	 var controllers []controller
+	// for _, resource := range validResources {
+	// 	// informer := infFactory.ForResource(resource)
+	// 	// client := metadataClient.Resource(resource)
+	// 	controller :=  reconcileController(resource, metadataClient, infFactory)
+	// 	controllers = append(controllers, controller)
+	// }
 
 	// cache sync
 	infFactory.Start(ctx.Done())
 	infFactory.WaitForCacheSync(ctx.Done())
 
-	// run
-	for _, controller := range controllers {
-		go controller.run(ctx)
-	}
+	// // run
+	// for _, controller := range controllers {
+	// 	go controller.run(ctx)
+	// }
 
 	// Watch for new resource additions
-	go watchResourceAdditions(ctx, validResources, metadataClient, infFactory, discoveryClient)
+	go watchResourceAdditions(ctx, &resources, &controllers, metadataClient, infFactory, discoveryClient, *authClient)
 
 	// shutdown
 	<-ctx.Done()
 }
 
-func reconcileController(resource schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
+func reconcileController(resource schema.GroupVersionResource,metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
 	client := metadataClient.Resource(resource)
 	informer := infFactory.ForResource(resource)
 	return newController(client, informer)
 }
 
 
-func watchResourceAdditions(ctx context.Context, resources []schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory, discoveryClient *discovery.DiscoveryClient) {
+func watchResourceAdditions(ctx context.Context, resources *[]schema.GroupVersionResource, controllers *[]controller,metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory, discoveryClient *discovery.DiscoveryClient, authClient authorizationv1client.AuthorizationV1Client) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
+			s := self{
+				client: authClient.SelfSubjectAccessReviews(),
+			}
 			// Check if any new resources have been added
 			newResources, err := discoverResources(discoveryClient)
 			if err != nil {
-				log.Printf("Error discovering resources: %v", err)
-				continue
+				fmt.Printf("error %s in discovering resources\n", err.Error())
 			}
-
+		
 			// Find new resources that are not already being controlled
 			for _, newResource := range newResources {
-				if !containsResource(resources, newResource) {
-					fmt.Printf("detected a new resource: %s\ncreating a controller for the same\n", newResource.String())
-					controller := reconcileController(newResource, metadataClient, infFactory)
+				if !containsResource(*resources, newResource) {
+					log.Printf("New resource added: %s", newResource.String())
+					if(s.hasResourcePermissions(newResource)){
+						controller := reconcileController(newResource, metadataClient, infFactory)
 					go controller.run(ctx)
-					resources = append(resources, newResource)
+					*resources = append(*resources, newResource)
+					*controllers = append(*controllers, *controller)
+					}
 				}
+			}
+
+			// Find resources that have been removed
+			update := false
+			for _, resource := range *resources {
+				if !containsResource(newResources, resource) {
+					log.Printf("Resource removed: %s", resource.String())
+					update = true
+					// Handle the removal of the resource here
+					// For example, stop the corresponding controller
+				}
+			}
+
+			if update{
+				*resources = newResources
+				update = false
 			}
 
 			time.Sleep(1 * time.Minute) // Adjust the sleep duration as per your requirement
@@ -212,6 +233,7 @@ func filterPermissionsResource(resources[] schema.GroupVersionResource, authClie
 	 }
 	 return validResources
 }
+
 
 func (c self) hasResourcePermissions( resource schema.GroupVersionResource) bool {
 
