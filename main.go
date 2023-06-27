@@ -77,35 +77,16 @@ func main() {
 	// discover resources
 	var resources []schema.GroupVersionResource
 
-	// if err != nil {
-	// 	fmt.Printf("error %s in discovering resources\n", err.Error())
-	// }
-
-	// // filter out the resources that are allowed to get, list and deleted by the service account
-	// var validResources []schema.GroupVersionResource
-	// validResources = filterPermissionsResource(resources, *authClient)
-
 	// context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	 // controllers
 	 var controllers []controller
-	// for _, resource := range validResources {
-	// 	// informer := infFactory.ForResource(resource)
-	// 	// client := metadataClient.Resource(resource)
-	// 	controller :=  reconcileController(resource, metadataClient, infFactory)
-	// 	controllers = append(controllers, controller)
-	// }
 
 	// cache sync
 	infFactory.Start(ctx.Done())
 	infFactory.WaitForCacheSync(ctx.Done())
-
-	// // run
-	// for _, controller := range controllers {
-	// 	go controller.run(ctx)
-	// }
 
 	// Watch for new resource additions
 	go watchResourceAdditions(ctx, &resources, &controllers, metadataClient, infFactory, discoveryClient, *authClient)
@@ -140,6 +121,8 @@ func watchResourceAdditions(ctx context.Context, resources *[]schema.GroupVersio
 			for _, newResource := range newResources {
 				if !containsResource(*resources, newResource) {
 					log.Printf("New resource added: %s", newResource.String())
+
+					//check if we can list, delete and get the resource by the service account mounted
 					if(s.hasResourcePermissions(newResource)){
 						controller := reconcileController(newResource, metadataClient, infFactory)
 					go controller.run(ctx)
