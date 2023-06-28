@@ -9,6 +9,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
@@ -21,14 +22,16 @@ type controller struct {
 	queue  workqueue.RateLimitingInterface
 	lister cache.GenericLister
 	stopCh   chan struct{}
+	resource schema.GroupVersionResource
 }
 
-func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
+func newController(client metadata.Getter, metainformer informers.GenericInformer, resource schema.GroupVersionResource) *controller {
 	c := &controller{
 		client: client,
 		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 		lister: metainformer.Lister(),
 		stopCh:   make(chan struct{}),
+		resource: resource,
 	}
 	metainformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -72,6 +75,11 @@ func (c *controller) run(ctx context.Context) {
 	fmt.Println("Controller stopped")
 }
 
+func (c *controller) stop(){
+	fmt.Println("Stopping controller...")
+	close(c.stopCh)
+}
+
 func (c *controller) enqueue(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
@@ -89,6 +97,8 @@ func (c *controller) worker(ctx context.Context) {
 		}
 	}
 }
+
+
 
 func (c *controller) processItem() bool {
 	item, shutdown := c.queue.Get()
