@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -11,13 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
 	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
-
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/metadata/metadatainformer"
 	"k8s.io/client-go/rest"
@@ -25,12 +23,21 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+type manager struct {
+	metadataClient metadata.Interface
+	discoveryClient discovery.DiscoveryClient
+	authClient      *authorizationv1client.AuthorizationV1Client
+	infFactory      metadatainformer.SharedInformerFactory
+}
+
 type self struct {
 	client authorizationv1client.SelfSubjectAccessReviewInterface
 }
 
+var resources[] schema.GroupVersionResource
+var controllers[] controller
+
 func main() {
-	// flags
 	var kubeconfig *string
 
 	if home := homedir.HomeDir(); home != "" {
@@ -47,25 +54,44 @@ func main() {
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			log.Printf("error %s building inclusterconfig", err.Error())
+			os.Exit(1)
 		}
 	}
+	// manager
+	manager, err := NewManager(config)
+	if err != nil {
+		log.Printf("error %s creating manager", err.Error())
+		os.Exit(1)
+	}
 
+	// context
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	// run
+	if err := manager.Run(ctx); err != nil {
+		log.Printf("error %s running manager", err.Error())
+		os.Exit(1)
+	}
+}
+
+func NewManager(config *rest.Config) (*manager, error) {
 	// client
 	metadataClient, err := metadata.NewForConfig(config)
 	if err != nil {
-		fmt.Printf("error %s in getting dynamic client\n", err.Error())
+		return nil, err
 	}
 
 	// discovery client
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		fmt.Printf("error %s in getting discovery client\n", err.Error())
+		return nil, err
 	}
 
 	authClient, err := authorizationv1client.NewForConfig(config)
 
-	if(err != nil){
-		fmt.Printf("error %s in getting authorization client\n", err.Error())
+	if err != nil {
+		return nil, err
 	}
 
 	// factory
@@ -74,96 +100,104 @@ func main() {
 	})
 	defer infFactory.Shutdown()
 
-	// discover resources
-	var resources []schema.GroupVersionResource
-
-	// context
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	 // controllers
-	 var controllers []controller
-
-	// cache sync
-	infFactory.Start(ctx.Done())
-	infFactory.WaitForCacheSync(ctx.Done())
-
-	// Watch for new resource additions
-	go watchResourceAdditions(ctx, &resources, &controllers, metadataClient, infFactory, discoveryClient, *authClient)
-
-	// shutdown
-	<-ctx.Done()
+	return &manager{
+		metadataClient: metadataClient,
+		discoveryClient: *discoveryClient,
+		authClient:      authClient,
+		infFactory:      infFactory,
+	}, nil
 }
 
-func reconcileController(resource schema.GroupVersionResource,metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
+func (m *manager) Run(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			// cache sync
+			m.infFactory.Start(ctx.Done())
+			m.infFactory.WaitForCacheSync(ctx.Done())
+
+			if err := m.reconcile(ctx); err != nil {
+				return err
+			}
+			time.Sleep(1 * time.Minute)
+		}
+	}
+}
+
+
+func (m *manager) getDesiredState() (sets.Set[schema.GroupVersionResource], error) {
+	// Get the list of resources currently present in the cluster
+	newresources, err := discoverResources(&m.discoveryClient)
+	if err != nil {
+		return nil, err
+	}
+
+	validResources := filterPermissionsResource(newresources, *m.authClient)
+
+	// Convert the list of resources to a set for easy comparison
+	desiredState := sets.New[schema.GroupVersionResource]()
+	for _, resource := range validResources {
+		desiredState.Insert(resource)
+	}
+
+	return desiredState, nil
+}
+
+func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], error) {
+		observedState := sets.New[schema.GroupVersionResource]()
+		for _, resource := range resources {
+			observedState.Insert(resource)
+		}
+		return observedState, nil
+}
+
+func (m *manager) stop(gvr schema.GroupVersionResource, ctx context.Context) error {
+	// TODO
+	return nil
+}
+
+func (m *manager) start(gvr schema.GroupVersionResource, ctx context.Context) error {
+	controller:= createController(gvr, m.metadataClient, m.infFactory)
+	log.Printf("Starting controller for resource: %s", gvr.String())
+	go controller.run(ctx)
+	controllers = append(controllers, *controller)
+	resources = append(resources, gvr)
+	return nil
+}
+
+func createController(resource schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
 	client := metadataClient.Resource(resource)
 	informer := infFactory.ForResource(resource)
 	return newController(client, informer)
 }
 
-
-func watchResourceAdditions(ctx context.Context, resources *[]schema.GroupVersionResource, controllers *[]controller,metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory, discoveryClient *discovery.DiscoveryClient, authClient authorizationv1client.AuthorizationV1Client) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			s := self{
-				client: authClient.SelfSubjectAccessReviews(),
-			}
-			// Check if any new resources have been added
-			newResources, err := discoverResources(discoveryClient)
-			if err != nil {
-				fmt.Printf("error %s in discovering resources\n", err.Error())
-			}
-		
-			// Find new resources that are not already being controlled
-			for _, newResource := range newResources {
-				if !containsResource(*resources, newResource) {
-					log.Printf("New resource added: %s", newResource.String())
-
-					//check if we can list, delete and get the resource by the service account mounted
-					if(s.hasResourcePermissions(newResource)){
-						controller := reconcileController(newResource, metadataClient, infFactory)
-					go controller.run(ctx)
-					*resources = append(*resources, newResource)
-					*controllers = append(*controllers, *controller)
-					}
-				}
-			}
-
-			// Find resources that have been removed
-			update := false
-			for _, resource := range *resources {
-				if !containsResource(newResources, resource) {
-					log.Printf("Resource removed: %s", resource.String())
-					update = true
-					// Handle the removal of the resource here
-					// For example, stop the corresponding controller
-				}
-			}
-
-			if update{
-				*resources = newResources
-				update = false
-			}
-
-			time.Sleep(1 * time.Minute) // to watch the controller state at a particular interval of time
+func (m *manager) reconcile(ctx context.Context) error {
+	log.Println("start manager reconciliation")
+	desiredState, err := m.getDesiredState()
+	if err != nil {
+		return err
+	}
+	observedState, err := m.getObservedState()
+	if err != nil {
+		return err
+	}
+	for gvr := range observedState.Difference(desiredState) {
+		if err := m.stop(gvr,ctx); err != nil {
+			return err
 		}
 	}
-}
-
-func containsResource(resources []schema.GroupVersionResource, resource schema.GroupVersionResource) bool {
-	for _, r := range resources {
-		if r == resource {
-			return true
+	for gvr := range desiredState.Difference(observedState) {
+		if err := m.start(gvr,ctx); err != nil {
+			return err
 		}
 	}
-	return false
+	return nil
 }
 
 
-func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
+func discoverResources(discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
 	resources := []schema.GroupVersionResource{}
 
 	apiResourceList, err := discoveryClient.ServerPreferredResources()
@@ -193,8 +227,8 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 					Version:  groupVersion.Version,
 					Resource: apiResource.Name,
 				}
-				
-					resources = append(resources, resource)
+
+				resources = append(resources, resource)
 			}
 		}
 	}
@@ -202,23 +236,22 @@ func discoverResources( discoveryClient discovery.DiscoveryInterface) ([]schema.
 	return resources, nil
 }
 
-func filterPermissionsResource(resources[] schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Client) ([]schema.GroupVersionResource) {
-	 validResources := []schema.GroupVersionResource{}
-	 s := self{
+func filterPermissionsResource(resources []schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Client) []schema.GroupVersionResource {
+	validResources := []schema.GroupVersionResource{}
+	s := self{
 		client: authClient.SelfSubjectAccessReviews(),
 	}
-	 for _, resource := range resources {
+	for _, resource := range resources {
 		// Check if the service account has the necessary permissions
-		if(s.hasResourcePermissions(resource)){
+		if s.hasResourcePermissions(resource) {
 			validResources = append(validResources, resource)
 		}
-		
-	 }
-	 return validResources
+
+	}
+	return validResources
 }
 
-
-func (c self) hasResourcePermissions( resource schema.GroupVersionResource) bool {
+func (c self) hasResourcePermissions(resource schema.GroupVersionResource) bool {
 
 	// Check if the service account has the required verbs (get, list, delete)
 	verbs := []string{"get", "list", "delete"}
@@ -226,11 +259,11 @@ func (c self) hasResourcePermissions( resource schema.GroupVersionResource) bool
 		subjectAccessReview := &authorizationv1.SelfSubjectAccessReview{
 			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 				ResourceAttributes: &authorizationv1.ResourceAttributes{
-					Namespace:  "default", // Set the appropriate namespace
-					Verb:       verb,
-					Group:      resource.Group,
-					Version:    resource.Version,
-					Resource:   resource.Resource,
+					Namespace: "default", // Set the appropriate namespace
+					Verb:      verb,
+					Group:     resource.Group,
+					Version:   resource.Version,
+					Resource:  resource.Resource,
 				},
 			},
 		}
@@ -263,4 +296,3 @@ func containsAllVerbs(supportedVerbs []string, requiredVerbs []string) bool {
 	}
 	return true
 }
-
