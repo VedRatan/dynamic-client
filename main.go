@@ -148,7 +148,7 @@ func watchResourceAdditions(ctx context.Context, resources *[]schema.GroupVersio
 				update = false
 			}
 
-			time.Sleep(1 * time.Minute) // Adjust the sleep duration as per your requirement
+			time.Sleep(1 * time.Minute) // to watch the controller state at a particular interval of time
 		}
 	}
 }
