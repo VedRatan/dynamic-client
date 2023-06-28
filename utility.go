@@ -1,13 +1,13 @@
 package main
- import ("context"
- "log"
 
-
- metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
- "k8s.io/apimachinery/pkg/runtime/schema"
- "k8s.io/client-go/discovery"
- authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
- authorizationv1 "k8s.io/api/authorization/v1"
+import (
+	"context"
+	"log"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/discovery"
+	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
+	checker "github.com/kyverno/kyverno/pkg/auth/checker"
 )
 
  func discoverResources(discoveryClient discovery.DiscoveryInterface) ([]schema.GroupVersionResource, error) {
@@ -26,10 +26,12 @@ package main
 			return nil, err
 		}
 	}
-	requiredVerbs := []string{"list", "watch", "delete"}
+
+	requiredVerbs := sets.NewString("list", "watch", "delete")
 	for _, apiResourceList := range apiResourceList {
 		for _, apiResource := range apiResourceList.APIResources {
-			if containsAllVerbs(apiResource.Verbs, requiredVerbs) {
+			verbs := sets.NewString(apiResource.Verbs...)
+			if verbs.IsSuperset(requiredVerbs) {
 				groupVersion, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
 				if err != nil {
 					return resources, err
@@ -49,14 +51,12 @@ package main
 	return resources, nil
 }
 
-func filterPermissionsResource(resources []schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Client) []schema.GroupVersionResource {
+func filterPermissionsResource(resources []schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Interface) []schema.GroupVersionResource {
 	validResources := []schema.GroupVersionResource{}
-	s := self{
-		client: authClient.SelfSubjectAccessReviews(),
-	}
+	s := checker.NewSelfChecker(authClient.SelfSubjectAccessReviews())
 	for _, resource := range resources {
 		// Check if the service account has the necessary permissions
-		if s.hasResourcePermissions(resource) {
+		if hasResourcePermissions(resource, s) {
 			validResources = append(validResources, resource)
 		}
 
@@ -64,48 +64,33 @@ func filterPermissionsResource(resources []schema.GroupVersionResource, authClie
 	return validResources
 }
 
-func (c self) hasResourcePermissions(resource schema.GroupVersionResource) bool {
+func hasResourcePermissions(resource schema.GroupVersionResource, s checker.AuthChecker) bool {
 
 	// Check if the service account has the required verbs (get, list, delete)
 	verbs := []string{"watch", "list", "delete"}
+	
 	for _, verb := range verbs {
-		subjectAccessReview := &authorizationv1.SelfSubjectAccessReview{
-			Spec: authorizationv1.SelfSubjectAccessReviewSpec{
-				ResourceAttributes: &authorizationv1.ResourceAttributes{
-					Namespace: "default", // Set the appropriate namespace
-					Verb:      verb,
-					Group:     resource.Group,
-					Version:   resource.Version,
-					Resource:  resource.Resource,
-				},
-			},
-		}
-		result, err := c.client.Create(context.TODO(), subjectAccessReview, metav1.CreateOptions{})
+		// subjectAccessReview := &authorizationv1.SelfSubjectAccessReview{
+		// 	Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+		// 		ResourceAttributes: &authorizationv1.ResourceAttributes{
+		// 			Namespace: "default", // Set the appropriate namespace
+		// 			Verb:      verb,
+		// 			Group:     resource.Group,
+		// 			Version:   resource.Version,
+		// 			Resource:  resource.Resource,
+		// 		},
+		// 	},
+		// }
+		result, err := s.Check(context.TODO(),resource.Group, resource.Version, resource.Resource, " ", "default", verb)
 		if err != nil {
 			log.Printf("Failed to check resource permissions: %v", err)
 			return false
 		}
-		if !result.Status.Allowed {
+		if !result.Allowed {
 			log.Printf("Service account does not have '%s' permission for resource: %s", verb, resource.Resource)
 			return false
 		}
 	}
 
-	return true
-}
-
-func containsAllVerbs(supportedVerbs []string, requiredVerbs []string) bool {
-	for _, requiredVerb := range requiredVerbs {
-		found := false
-		for _, verb := range supportedVerbs {
-			if verb == requiredVerb {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
 	return true
 }

@@ -18,8 +18,10 @@ import (
 type manager struct {
 	metadataClient metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
-	authClient      *authorizationv1client.AuthorizationV1Client
+	authClient      authorizationv1client.AuthorizationV1Interface
 	infFactory      metadatainformer.SharedInformerFactory
+	resources[] schema.GroupVersionResource
+	controllers[] controller
 }
 
 
@@ -27,8 +29,6 @@ type self struct {
 	client authorizationv1client.SelfSubjectAccessReviewInterface
 }
 
-var resources[] schema.GroupVersionResource
-var controllers[] controller
 
 func NewManager(config *rest.Config) (*manager, error) {
 	// client
@@ -89,29 +89,20 @@ func (m *manager) getDesiredState() (sets.Set[schema.GroupVersionResource], erro
 		return nil, err
 	}
 
-	validResources := filterPermissionsResource(newresources, *m.authClient)
+	validResources := filterPermissionsResource(newresources, m.authClient)
 
-	// Convert the list of resources to a set for easy comparison
-	desiredState := sets.New[schema.GroupVersionResource]()
-	for _, resource := range validResources {
-		desiredState.Insert(resource)
-	}
-
-	return desiredState, nil
+	return sets.New(validResources...), nil
 }
 
 func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], error) {
-		observedState := sets.New[schema.GroupVersionResource]()
-		for _, resource := range resources {
-			observedState.Insert(resource)
-		}
-		return observedState, nil
+		// return observedState
+		return sets.New(m.resources...), nil
 }
 
 func (m *manager) stop(gvr schema.GroupVersionResource, ctx context.Context) error {
 	// TODO
 
-	for _, controller := range controllers{
+	for _, controller := range m.controllers{
 		if controller.resource  == gvr {
 			controller.stop()
 			return nil
@@ -125,8 +116,8 @@ func (m *manager) start(gvr schema.GroupVersionResource, ctx context.Context) er
 	controller:= createController(gvr, m.metadataClient, m.infFactory)
 	log.Printf("Starting controller for resource: %s", gvr.String())
 	go controller.run(ctx)
-	controllers = append(controllers, *controller)
-	resources = append(resources, gvr)
+	m.controllers = append(m.controllers, *controller)
+	m.resources = append(m.resources, gvr)
 	return nil
 }
 
