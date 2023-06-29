@@ -65,6 +65,7 @@ func (c *controller) run(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		fmt.Println("Stopping controller due to context signal ...")
+		c.queue.ShutDown()
 		close(c.stopCh)
 
 	case <-c.stopCh:
