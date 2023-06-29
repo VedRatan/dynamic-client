@@ -120,6 +120,7 @@ func (m *manager) stop(gvr schema.GroupVersionResource, ctx context.Context) err
 	for _, controller := range m.resController {
 		if controller.resource == gvr {
 			controller.stop()
+			delete(m.resController, gvr)
 			return nil
 		}
 	}

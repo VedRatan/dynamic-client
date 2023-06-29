@@ -69,7 +69,6 @@ func (c *controller) run(ctx context.Context) {
 
 	case <-c.stopCh:
 		fmt.Println("Stopping controller due to stop channel signal ...")
-		close(c.stopCh)
 	}
 
 	fmt.Println("Controller stopped")
