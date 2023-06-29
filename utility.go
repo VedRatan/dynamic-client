@@ -27,21 +27,23 @@ import (
 		}
 	}
 
-	requiredVerbs := sets.NewString("list", "watch", "delete")
+	requiredVerbs := []string{"list", "watch", "delete"}
 	for _, apiResourceList := range apiResourceList {
 		for _, apiResource := range apiResourceList.APIResources {
 			verbs := sets.NewString(apiResource.Verbs...)
-			if verbs.IsSuperset(requiredVerbs) {
+			if verbs.HasAll(requiredVerbs...) {
 				groupVersion, err := schema.ParseGroupVersion(apiResourceList.GroupVersion)
 				if err != nil {
 					return resources, err
 				}
 
-				resource := schema.GroupVersionResource{
-					Group:    groupVersion.Group,
-					Version:  groupVersion.Version,
-					Resource: apiResource.Name,
-				}
+				// resource := schema.GroupVersionResource{
+				// 	Group:    groupVersion.Group,
+				// 	Version:  groupVersion.Version,
+				// 	Resource: apiResource.Name,
+				// }
+
+				resource := groupVersion.WithResource(apiResource.Name)
 
 				resources = append(resources, resource)
 			}
@@ -51,12 +53,11 @@ import (
 	return resources, nil
 }
 
-func filterPermissionsResource(resources []schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Interface) []schema.GroupVersionResource {
+func (m *manager) filterPermissionsResource(resources []schema.GroupVersionResource, authClient authorizationv1client.AuthorizationV1Interface) []schema.GroupVersionResource {
 	validResources := []schema.GroupVersionResource{}
-	s := checker.NewSelfChecker(authClient.SelfSubjectAccessReviews())
 	for _, resource := range resources {
 		// Check if the service account has the necessary permissions
-		if hasResourcePermissions(resource, s) {
+		if hasResourcePermissions(resource, m.checker) {
 			validResources = append(validResources, resource)
 		}
 
