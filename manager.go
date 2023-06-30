@@ -114,7 +114,7 @@ func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], err
 	// return sets.New(m.resources...), nil
 }
 
-func (m *manager) stop(gvr schema.GroupVersionResource, ctx context.Context) error {
+func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) error {
 	// TODO
 
 	for _, controller := range m.resController {
@@ -128,7 +128,7 @@ func (m *manager) stop(gvr schema.GroupVersionResource, ctx context.Context) err
 	return nil
 }
 
-func (m *manager) start(gvr schema.GroupVersionResource, ctx context.Context) error {
+func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) error {
 	controller := createController(gvr, m.metadataClient, m.infFactory)
 	log.Printf("Starting controller for resource: %s", gvr.String())
 	go controller.run(ctx)
@@ -155,12 +155,12 @@ func (m *manager) reconcile(ctx context.Context) error {
 		return err
 	}
 	for gvr := range observedState.Difference(desiredState) {
-		if err := m.stop(gvr, ctx); err != nil {
+		if err := m.stop(ctx, gvr); err != nil {
 			return err
 		}
 	}
 	for gvr := range desiredState.Difference(observedState) {
-		if err := m.start(gvr, ctx); err != nil {
+		if err := m.start(ctx, gvr); err != nil {
 			return err
 		}
 	}
