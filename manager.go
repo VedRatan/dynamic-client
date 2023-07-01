@@ -131,10 +131,14 @@ func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) err
 func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) error {
 	controller := createController(gvr, m.metadataClient, m.infFactory)
 	log.Printf("Starting controller for resource: %s", gvr.String())
-	go controller.run(ctx)
+	// go controller.run(ctx,3)
 	// m.controllers = append(m.controllers, *controller)
 	// m.resources = append(m.resources, gvr)
 	m.resController[gvr] = controller
+	// Start the controller's execution as a goroutine within the wait group
+	controller.wg.StartWithContext(ctx, func(ctx context.Context) {
+		controller.run(ctx, 3)
+	})
 	return nil
 }
 

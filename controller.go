@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gardener/controller-manager-library/pkg/logger"
@@ -18,19 +19,22 @@ import (
 )
 
 type controller struct {
-	client metadata.Getter
-	queue  workqueue.RateLimitingInterface
-	lister cache.GenericLister
+	client   metadata.Getter
+	queue    workqueue.RateLimitingInterface
+	lister   cache.GenericLister
 	stopCh   chan struct{}
+	wg       wait.Group
 	resource schema.GroupVersionResource
 }
 
 func newController(client metadata.Getter, metainformer informers.GenericInformer, resource schema.GroupVersionResource) *controller {
+
 	c := &controller{
-		client: client,
-		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		lister: metainformer.Lister(),
+		client:   client,
+		queue:    workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		lister:   metainformer.Lister(),
 		stopCh:   make(chan struct{}),
+		wg:       wait.Group{},
 		resource: resource,
 	}
 	metainformer.Informer().AddEventHandler(
@@ -59,9 +63,14 @@ func (c *controller) handleUpdate(oldObj, newObj interface{}) {
 	c.enqueue(newObj)
 }
 
-func (c *controller) run(ctx context.Context) {
-	fmt.Println("starting controller ....")
-	go wait.UntilWithContext(ctx, c.worker, 1*time.Second)
+func (c *controller) run(ctx context.Context, workers int) {
+	for i := 0; i < workers; i++ {
+		c.wg.StartWithContext(ctx, func(ctx context.Context) {
+			defer log.Println("worker stopped")
+			log.Println("worker starting ....")
+			wait.UntilWithContext(ctx, c.worker, 1*time.Second)
+		})
+	}
 	select {
 	case <-ctx.Done():
 		fmt.Println("Stopping controller due to context signal ...")
@@ -72,12 +81,15 @@ func (c *controller) run(ctx context.Context) {
 		fmt.Printf("Stopping controller fpr resoource: %s \n", c.resource.String())
 	}
 
-	fmt.Println("Controller stopped")
+	// fmt.Println("Controller stopped")
 }
 
-func (c *controller) stop(){
+func (c *controller) stop() {
+	defer log.Println("queue stopped")
+	log.Println("queue stopping ....")
 	c.queue.ShutDown()
 	close(c.stopCh)
+
 }
 
 func (c *controller) enqueue(obj interface{}) {
@@ -97,8 +109,6 @@ func (c *controller) worker(ctx context.Context) {
 		}
 	}
 }
-
-
 
 func (c *controller) processItem() bool {
 	item, shutdown := c.queue.Get()
@@ -144,7 +154,6 @@ func (c *controller) reconcile(itemKey string) error {
 
 	labels := metaObj.GetLabels()
 	ttlValue, ok := labels[ttlLabel]
-
 
 	if !ok {
 		// No 'ttl' label present, no further action needed
