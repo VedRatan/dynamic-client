@@ -19,23 +19,18 @@ import (
 )
 
 type controller struct {
-	client   metadata.Getter
-	queue    workqueue.RateLimitingInterface
-	lister   cache.GenericLister
-	stopCh   chan struct{}
-	wg       wait.Group
-	resource schema.GroupVersionResource
+	client metadata.Getter
+	queue  workqueue.RateLimitingInterface
+	lister cache.GenericLister
+	wg     wait.Group
 }
 
 func newController(client metadata.Getter, metainformer informers.GenericInformer, resource schema.GroupVersionResource) *controller {
-
 	c := &controller{
-		client:   client,
-		queue:    workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		lister:   metainformer.Lister(),
-		stopCh:   make(chan struct{}),
-		wg:       wait.Group{},
-		resource: resource,
+		client: client,
+		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		lister: metainformer.Lister(),
+		wg:     wait.Group{},
 	}
 	metainformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -58,12 +53,11 @@ func (c *controller) handleDelete(obj interface{}) {
 }
 
 func (c *controller) handleUpdate(oldObj, newObj interface{}) {
-
 	fmt.Println("resource was updated")
 	c.enqueue(newObj)
 }
 
-func (c *controller) run(ctx context.Context, workers int) {
+func (c *controller) Start(ctx context.Context, workers int) {
 	for i := 0; i < workers; i++ {
 		c.wg.StartWithContext(ctx, func(ctx context.Context) {
 			defer log.Println("worker stopped")
@@ -71,25 +65,15 @@ func (c *controller) run(ctx context.Context, workers int) {
 			wait.UntilWithContext(ctx, c.worker, 1*time.Second)
 		})
 	}
-	select {
-	case <-ctx.Done():
-		fmt.Println("Stopping controller due to context signal ...")
-		c.queue.ShutDown()
-		close(c.stopCh)
-
-	case <-c.stopCh:
-		fmt.Printf("Stopping controller fpr resoource: %s \n", c.resource.String())
-	}
-
-	// fmt.Println("Controller stopped")
 }
 
-func (c *controller) stop() {
-	defer log.Println("queue stopped")
-	log.Println("queue stopping ....")
-	c.queue.ShutDown()
-	close(c.stopCh)
-
+func (c *controller) Stop() {
+	defer c.wg.Wait()
+	func() {
+		defer log.Println("queue stopped")
+		log.Println("queue stopping ....")
+		c.queue.ShutDown()
+	}()
 }
 
 func (c *controller) enqueue(obj interface{}) {
