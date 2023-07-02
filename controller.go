@@ -185,7 +185,7 @@ func (c *controller) reconcile(itemKey string) error {
 		fmt.Printf("Resource '%s' has been deleted\n", itemKey)
 	} else {
 		// Calculate the remaining time until deletion
-		timeRemaining := deletionTime.Sub(time.Now())
+		timeRemaining := time.Until(deletionTime)
 		// Add the item back to the queue after the remaining time
 		c.queue.AddAfter(itemKey, timeRemaining)
 	}
