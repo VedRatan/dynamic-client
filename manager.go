@@ -23,16 +23,9 @@ type manager struct {
 	infFactory      metadatainformer.SharedInformerFactory
 	checker         checker.AuthChecker
 	resController   map[schema.GroupVersionResource]*controller
-	// resources       []schema.GroupVersionResource
-	// controllers     []controller
-}
-
-type self struct {
-	client authorizationv1client.SelfSubjectAccessReviewInterface
 }
 
 func NewManager(config *rest.Config) (*manager, error) {
-
 	// client
 	metadataClient, err := metadata.NewForConfig(config)
 	if err != nil {
@@ -98,47 +91,32 @@ func (m *manager) getDesiredState() (sets.Set[schema.GroupVersionResource], erro
 	if err != nil {
 		return nil, err
 	}
-
 	validResources := m.filterPermissionsResource(newresources, m.authClient)
-
 	return sets.New(validResources...), nil
 }
 
 func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], error) {
-	// return observedState
 	observedState := sets.New[schema.GroupVersionResource]()
 	for resource, _ := range m.resController {
 		observedState.Insert(resource)
 	}
 	return observedState, nil
-	// return sets.New(m.resources...), nil
 }
 
 func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) error {
-	// TODO
-
-	for _, controller := range m.resController {
-		if controller.resource == gvr {
-			controller.stop()
-			delete(m.resController, gvr)
-			return nil
-		}
+	if controller, ok := m.resController[gvr]; ok {
+		delete(m.resController, gvr)
+		controller.Stop()
 	}
-
 	return nil
 }
 
 func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) error {
 	controller := createController(gvr, m.metadataClient, m.infFactory)
 	log.Printf("Starting controller for resource: %s", gvr.String())
-	// go controller.run(ctx,3)
-	// m.controllers = append(m.controllers, *controller)
-	// m.resources = append(m.resources, gvr)
 	m.resController[gvr] = controller
 	// Start the controller's execution as a goroutine within the wait group
-	controller.wg.StartWithContext(ctx, func(ctx context.Context) {
-		controller.run(ctx, 3)
-	})
+	controller.Start(ctx, 3)
 	return nil
 }
 
