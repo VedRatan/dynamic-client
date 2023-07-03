@@ -19,7 +19,6 @@ import (
 type manager struct {
 	metadataClient  metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
-	authClient      authorizationv1client.AuthorizationV1Interface
 	infFactory      metadatainformer.SharedInformerFactory
 	checker         checker.AuthChecker
 	resController   map[schema.GroupVersionResource]*controller
@@ -60,7 +59,6 @@ func NewManager(config *rest.Config) (*manager, error) {
 	return &manager{
 		metadataClient:  metadataClient,
 		discoveryClient: discoveryClient,
-		authClient:      authClient,
 		infFactory:      infFactory,
 		checker:         selfChecker,
 		resController:   resController,
@@ -91,13 +89,13 @@ func (m *manager) getDesiredState() (sets.Set[schema.GroupVersionResource], erro
 	if err != nil {
 		return nil, err
 	}
-	validResources := m.filterPermissionsResource(newresources, m.authClient)
+	validResources := m.filterPermissionsResource(newresources)
 	return sets.New(validResources...), nil
 }
 
 func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], error) {
 	observedState := sets.New[schema.GroupVersionResource]()
-	for resource, _ := range m.resController {
+	for resource := range m.resController {
 		observedState.Insert(resource)
 	}
 	return observedState, nil
@@ -115,7 +113,6 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 	controller := createController(gvr, m.metadataClient, m.infFactory)
 	log.Printf("Starting controller for resource: %s", gvr.String())
 	m.resController[gvr] = controller
-	// Start the controller's execution as a goroutine within the wait group
 	controller.Start(ctx, 3)
 	return nil
 }
