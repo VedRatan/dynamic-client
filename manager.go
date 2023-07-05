@@ -74,16 +74,19 @@ func NewManager(config *rest.Config) (*manager, error) {
 }
 
 func (m *manager) Run(ctx context.Context) error {
+	defer func() {
+		// Stop all informers and wait for them to finish
+		for gvr := range m.stopChans {
+			if err := m.stop(ctx, gvr); err != nil {
+				log.Println("Error stopping informer:", err)
+			}
+		}
+		m.wg.Wait()
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
-				// Stop all informers and wait for them to finish
-				for gvr := range m.stopChans {
-					if err := m.stop(ctx, gvr); err != nil {
-						log.Println("Error stopping informer:", err)
-					}
-				}
-				m.wg.Wait()
 			return nil
 		default:
 			if err := m.reconcile(ctx); err != nil {
