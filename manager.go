@@ -23,8 +23,9 @@ type manager struct {
 	metadataClient  metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
 	checker         checker.AuthChecker
-	resController   map[schema.GroupVersionResource]*controller
 	wg              wait.Group
+	resController   map[schema.GroupVersionResource]*controller
+	stopChans       map[schema.GroupVersionResource]chan struct{} // To track stop signals for each informer
 }
 
 func NewManager(config *rest.Config) (*manager, error) {
@@ -59,12 +60,16 @@ func NewManager(config *rest.Config) (*manager, error) {
 	//map initialization
 	resController := make(map[schema.GroupVersionResource]*controller)
 
+	// Initialize stop channels map
+	stopChans := make(map[schema.GroupVersionResource]chan struct{})
+
 	return &manager{
 		metadataClient:  metadataClient,
 		discoveryClient: discoveryClient,
 		checker:         selfChecker,
-		resController:   resController,
 		wg:              wait.Group{},
+		resController:   resController,
+		stopChans:       stopChans,
 	}, nil
 }
 
@@ -72,6 +77,13 @@ func (m *manager) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+				// Stop all informers and wait for them to finish
+				for gvr := range m.stopChans {
+					if err := m.stop(ctx, gvr); err != nil {
+						log.Println("Error stopping informer:", err)
+					}
+				}
+				m.wg.Wait()
 			return nil
 		default:
 			if err := m.reconcile(ctx); err != nil {
@@ -103,6 +115,12 @@ func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], err
 func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) error {
 	if controller, ok := m.resController[gvr]; ok {
 		delete(m.resController, gvr)
+		stopChan, ok := m.stopChans[gvr]
+		if ok {
+			close(stopChan) // Send stop signal to informer's goroutine
+			delete(m.stopChans, gvr)
+		}
+		log.Println("Informer stopped ", gvr)
 		controller.Stop()
 	}
 	return nil
@@ -126,27 +144,24 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
+	stopChan := make(chan struct{}) // Create a stop signal channel
+	m.stopChans[gvr] = stopChan     // Store the stop channel
+
 	m.wg.StartWithContext(ctx, func(ctx context.Context) {
 		defer log.Println("informer started", gvr)
 		log.Println("informer starting...", gvr)
-		informer.Informer().Run(ctx.Done())
+		informer.Informer().Run(stopChan)
 	})
 
-	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced){
+	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced) {
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
-	}	
+	}
 
-		log.Println("controller starting...", gvr)
-		controller.Start(ctx, 3)
+	log.Println("controller starting...", gvr)
+	controller.Start(ctx, 3)
 	m.resController[gvr] = controller
 	return nil
 }
-
-// func createController(resource schema.GroupVersionResource, metadataClient metadata.Interface, infFactory metadatainformer.SharedInformerFactory) *controller {
-// 	client := metadataClient.Resource(resource)
-// 	informer := infFactory.ForResource(resource)
-// 	return newController(client, informer, resource)
-// }
 
 func (m *manager) reconcile(ctx context.Context) error {
 	log.Println("start manager reconciliation")
