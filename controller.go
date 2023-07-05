@@ -10,7 +10,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/metadata"
@@ -25,7 +24,7 @@ type controller struct {
 	wg     wait.Group
 }
 
-func newController(client metadata.Getter, metainformer informers.GenericInformer, resource schema.GroupVersionResource) *controller {
+func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
 	c := &controller{
 		client: client,
 		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
