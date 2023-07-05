@@ -127,7 +127,7 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
 	m.wg.StartWithContext(ctx, func(ctx context.Context) {
-		defer log.Println("informer stopped", gvr)
+		defer log.Println("informer started", gvr)
 		log.Println("informer starting...", gvr)
 		informer.Informer().Run(ctx.Done())
 	})
