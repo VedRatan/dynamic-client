@@ -22,7 +22,6 @@ import (
 type manager struct {
 	metadataClient  metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
-	infFactory      metadatainformer.SharedInformerFactory
 	checker         checker.AuthChecker
 	resController   map[schema.GroupVersionResource]*controller
 	wg              wait.Group
@@ -52,10 +51,10 @@ func NewManager(config *rest.Config) (*manager, error) {
 	selfChecker := checker.NewSelfChecker(authClient.SelfSubjectAccessReviews())
 
 	// factory
-	infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
-		options.LabelSelector = "kyverno.io/ttl"
-	})
-	defer infFactory.Shutdown()
+	// infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
+	// 	options.LabelSelector = "kyverno.io/ttl"
+	// })
+	// defer infFactory.Shutdown()
 
 	//map initialization
 	resController := make(map[schema.GroupVersionResource]*controller)
@@ -63,7 +62,6 @@ func NewManager(config *rest.Config) (*manager, error) {
 	return &manager{
 		metadataClient:  metadataClient,
 		discoveryClient: discoveryClient,
-		infFactory:      infFactory,
 		checker:         selfChecker,
 		resController:   resController,
 		wg:              wait.Group{},
@@ -76,10 +74,6 @@ func (m *manager) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		default:
-			// cache sync
-			m.infFactory.Start(ctx.Done())
-			m.infFactory.WaitForCacheSync(ctx.Done())
-
 			if err := m.reconcile(ctx); err != nil {
 				return err
 			}
@@ -140,12 +134,13 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced){
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
-	}
+	}	
 
 	m.wg.StartWithContext(ctx, func(ctx context.Context) {
 		defer log.Println("controller stopped", gvr)
 		log.Println("controller starting...", gvr)
 		controller.Start(ctx, 3)
+		m.wg.Wait()
 	})
 	m.resController[gvr] = controller
 	return nil
