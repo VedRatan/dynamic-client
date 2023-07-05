@@ -136,12 +136,8 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
 	}	
 
-	m.wg.StartWithContext(ctx, func(ctx context.Context) {
-		defer log.Println("controller stopped", gvr)
 		log.Println("controller starting...", gvr)
 		controller.Start(ctx, 3)
-		m.wg.Wait()
-	})
 	m.resController[gvr] = controller
 	return nil
 }
