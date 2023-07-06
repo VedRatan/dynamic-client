@@ -114,7 +114,7 @@ func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) err
 	if stopFunc, ok := m.resController[gvr]; ok {
 		delete(m.resController, gvr)
 		func() {
-			defer log.Println("stopped", gvr)
+			// defer log.Println("stopped", gvr)
 			log.Println("stopping...", gvr)
 			stopFunc()
 		}()
@@ -140,21 +140,21 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
-	stopChan := make(chan struct{}) // Create a stop signal channel
+	context, cancel := context.WithCancel(ctx)
 	var wg wait.Group
 
 	stopFunc := func() {
-		close(stopChan) // Send stop signal to informer's goroutine
-		controller.Stop()
+		cancel() // Send stop signal to informer's goroutine
+		// controller.Stop()
 		wg.Wait()     // Wait for the group to terminate
 		log.Println("Stopped", gvr)
 	}
 
 
 
-	wg.StartWithChannel(stopChan, func(stop <-chan struct{}) {
+	wg.StartWithChannel(context.Done(), func(stop <-chan struct{}) {
 		log.Println("informer starting...", gvr)
-		informer.Informer().Run(stopChan)
+		informer.Informer().Run(context.Done())
 	})
 
 	// go func() {
