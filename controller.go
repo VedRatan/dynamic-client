@@ -18,27 +18,44 @@ import (
 )
 
 type controller struct {
-	client metadata.Getter
-	queue  workqueue.RateLimitingInterface
-	lister cache.GenericLister
-	wg     wait.Group
+	client            metadata.Getter
+	queue             workqueue.RateLimitingInterface
+	lister            cache.GenericLister
+	wg                wait.Group
+	informer          cache.SharedIndexInformer
+	eventRegistration cache.ResourceEventHandlerRegistration
+}
+
+type customEventHandler struct {
+	cache.ResourceEventHandlerFuncs
+}
+
+func (c *customEventHandler) HasSynced() bool {
+	return true // Replace with your own implementation if needed
 }
 
 func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
 	c := &controller{
-		client: client,
-		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		lister: metainformer.Lister(),
-		wg:     wait.Group{},
+		client:   client,
+		queue:    workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		lister:   metainformer.Lister(),
+		wg:       wait.Group{},
+		informer: metainformer.Informer(),
 	}
-	metainformer.Informer().AddEventHandler(
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    c.handleAdd,
-			DeleteFunc: c.handleDelete,
-			UpdateFunc: c.handleUpdate,
-		},
-	)
+
+	eventRegistration, err := c.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    c.handleAdd,
+		DeleteFunc: c.handleDelete,
+		UpdateFunc: c.handleUpdate,
+	})
+	if err != nil {
+		log.Printf("error in registering event handler: %v", err)
+	}
+
+	c.eventRegistration = eventRegistration
+
 	return c
+
 }
 
 func (c *controller) handleAdd(obj interface{}) {
@@ -71,6 +88,8 @@ func (c *controller) Stop() {
 	defer c.wg.Wait()
 	log.Println("queue stopping ....")
 	c.queue.ShutDown()
+	// Unregister the event handlers
+	c.UnregisterEventHandlers()
 }
 
 func (c *controller) enqueue(obj interface{}) {
@@ -82,12 +101,18 @@ func (c *controller) enqueue(obj interface{}) {
 	c.queue.Add(key)
 }
 
+// UnregisterEventHandlers unregisters the event handlers from the informer.
+func (c *controller) UnregisterEventHandlers() {
+	c.informer.RemoveEventHandler(c.eventRegistration)
+	log.Println("unregister event handlers")
+}
+
 func (c *controller) worker(ctx context.Context) {
 	for {
-			if !c.processItem() {
-				// No more items in the queue, exit the loop
-				break
-			}
+		if !c.processItem() {
+			// No more items in the queue, exit the loop
+			break
+		}
 	}
 }
 
