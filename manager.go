@@ -51,12 +51,6 @@ func NewManager(config *rest.Config) (*manager, error) {
 
 	selfChecker := checker.NewSelfChecker(authClient.SelfSubjectAccessReviews())
 
-	// factory
-	// infFactory := metadatainformer.NewFilteredSharedInformerFactory(metadataClient, 10*time.Minute, "", func(options *metav1.ListOptions) {
-	// 	options.LabelSelector = "kyverno.io/ttl"
-	// })
-	// defer infFactory.Shutdown()
-
 	resController := make(map[schema.GroupVersionResource]stopFunc)
 
 	return &manager{
@@ -145,35 +139,26 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 	stopFunc := func() {
 		cancel() // Send stop signal to informer's goroutine
-		// controller.Stop()
 		wg.Wait()     // Wait for the group to terminate
+		controller.Stop()
 		log.Println("Stopped", gvr)
 	}
 
-
-
-	// wg.StartWithChannel(cont.Done(), func(stop <-chan struct{}) {
-	// 	log.Println("informer starting...", gvr)
-	// 	informer.Informer().Run(cont.Done())
-	// })
 
 	wg.StartWithContext(cont, func(ctx context.Context){
 		log.Println("informer starting...", gvr)
 		informer.Informer().Run(cont.Done())
 	})
 
-	// go func() {
-	// 	log.Println("Informer starting...", gvr)
-	// 	informer.Informer().Run(stopChan)
-	// }()
 
 	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced) {
+		cancel()
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
 	}
 
 
 	log.Println("controller starting...", gvr)
-	controller.Start(ctx, 3)
+	controller.Start(cont, 3)
 	m.resController[gvr] = stopFunc // Store the stop function
 	return nil
 }

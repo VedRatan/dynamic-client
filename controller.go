@@ -22,7 +22,6 @@ type controller struct {
 	queue  workqueue.RateLimitingInterface
 	lister cache.GenericLister
 	wg     wait.Group
-	done   chan struct{}
 }
 
 func newController(client metadata.Getter, metainformer informers.GenericInformer) *controller {
@@ -31,7 +30,6 @@ func newController(client metadata.Getter, metainformer informers.GenericInforme
 		queue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 		lister: metainformer.Lister(),
 		wg:     wait.Group{},
-		done:   make(chan struct{}),
 	}
 	metainformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
@@ -69,17 +67,9 @@ func (c *controller) Start(ctx context.Context, workers int) {
 }
 
 func (c *controller) Stop() {
-	// defer c.wg.Wait()
-	// func() {
-	// 	defer log.Println("queue stopped")
-	// 	log.Println("queue stopping ....")
-	// 	close(c.done)
-	// 	c.queue.ShutDown()
-	// }()
 	defer log.Println("queue stopped")
 	defer c.wg.Wait()
 	log.Println("queue stopping ....")
-	close(c.done)
 	c.queue.ShutDown()
 }
 
@@ -94,15 +84,10 @@ func (c *controller) enqueue(obj interface{}) {
 
 func (c *controller) worker(ctx context.Context) {
 	for {
-		select {
-		case <-c.done:
-			return
-		default:
 			if !c.processItem() {
 				// No more items in the queue, exit the loop
 				break
 			}
-		}
 	}
 }
 
