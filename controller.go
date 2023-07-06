@@ -69,13 +69,18 @@ func (c *controller) Start(ctx context.Context, workers int) {
 }
 
 func (c *controller) Stop() {
+	// defer c.wg.Wait()
+	// func() {
+	// 	defer log.Println("queue stopped")
+	// 	log.Println("queue stopping ....")
+	// 	close(c.done)
+	// 	c.queue.ShutDown()
+	// }()
+	defer log.Println("queue stopped")
 	defer c.wg.Wait()
-	func() {
-		defer log.Println("queue stopped")
-		log.Println("queue stopping ....")
-		close(c.done)
-		c.queue.ShutDown()
-	}()
+	log.Println("queue stopping ....")
+	close(c.done)
+	c.queue.ShutDown()
 }
 
 func (c *controller) enqueue(obj interface{}) {
