@@ -19,13 +19,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+type stopFunc = context.CancelFunc
+
 type manager struct {
 	metadataClient  metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
 	checker         checker.AuthChecker
 	wg              wait.Group
-	resController   map[schema.GroupVersionResource]*controller
-	stopChans       map[schema.GroupVersionResource]chan struct{} // To track stop signals for each informer
+	resController   map[schema.GroupVersionResource]stopFunc
 }
 
 func NewManager(config *rest.Config) (*manager, error) {
@@ -57,11 +58,7 @@ func NewManager(config *rest.Config) (*manager, error) {
 	// })
 	// defer infFactory.Shutdown()
 
-	//map initialization
-	resController := make(map[schema.GroupVersionResource]*controller)
-
-	// Initialize stop channels map
-	stopChans := make(map[schema.GroupVersionResource]chan struct{})
+	resController := make(map[schema.GroupVersionResource]stopFunc)
 
 	return &manager{
 		metadataClient:  metadataClient,
@@ -69,14 +66,13 @@ func NewManager(config *rest.Config) (*manager, error) {
 		checker:         selfChecker,
 		wg:              wait.Group{},
 		resController:   resController,
-		stopChans:       stopChans,
 	}, nil
 }
 
 func (m *manager) Run(ctx context.Context) error {
 	defer func() {
 		// Stop all informers and wait for them to finish
-		for gvr := range m.stopChans {
+		for gvr := range m.resController {
 			if err := m.stop(ctx, gvr); err != nil {
 				log.Println("Error stopping informer:", err)
 			}
@@ -92,7 +88,8 @@ func (m *manager) Run(ctx context.Context) error {
 			if err := m.reconcile(ctx); err != nil {
 				return err
 			}
-			time.Sleep(1 * time.Minute)
+			// time.Sleep(1 * time.Minute)
+			time.NewTicker(1*time.Minute)
 		}
 	}
 }
@@ -116,15 +113,13 @@ func (m *manager) getObservedState() (sets.Set[schema.GroupVersionResource], err
 }
 
 func (m *manager) stop(ctx context.Context, gvr schema.GroupVersionResource) error {
-	if controller, ok := m.resController[gvr]; ok {
+	if stopFunc, ok := m.resController[gvr]; ok {
 		delete(m.resController, gvr)
-		stopChan, ok := m.stopChans[gvr]
-		if ok {
-			close(stopChan) // Send stop signal to informer's goroutine
-			delete(m.stopChans, gvr)
-		}
-		log.Println("Informer stopped ", gvr)
-		controller.Stop()
+		func() {
+			defer log.Println("stopped", gvr)
+			log.Println("stopping...", gvr)
+			stopFunc()
+		}()
 	}
 	return nil
 }
@@ -148,10 +143,17 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
 	stopChan := make(chan struct{}) // Create a stop signal channel
-	m.stopChans[gvr] = stopChan     // Store the stop channel
+
+	stopFunc := func() {
+		close(stopChan) // Send stop signal to informer's goroutine
+		controller.Stop()
+		// m.wg.Wait()     // Wait for the group to terminate
+		log.Println("Stopped", gvr)
+	}
+
+
 
 	m.wg.StartWithContext(ctx, func(ctx context.Context) {
-		defer log.Println("informer started", gvr)
 		log.Println("informer starting...", gvr)
 		informer.Informer().Run(stopChan)
 	})
@@ -160,9 +162,10 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
 	}
 
+
 	log.Println("controller starting...", gvr)
 	controller.Start(ctx, 3)
-	m.resController[gvr] = controller
+	m.resController[gvr] = stopFunc // Store the stop function
 	return nil
 }
 
