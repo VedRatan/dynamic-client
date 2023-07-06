@@ -140,7 +140,7 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
-	context, cancel := context.WithCancel(ctx)
+	cont, cancel := context.WithCancel(ctx)
 	var wg wait.Group
 
 	stopFunc := func() {
@@ -152,9 +152,14 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 
 
-	wg.StartWithChannel(context.Done(), func(stop <-chan struct{}) {
+	// wg.StartWithChannel(cont.Done(), func(stop <-chan struct{}) {
+	// 	log.Println("informer starting...", gvr)
+	// 	informer.Informer().Run(cont.Done())
+	// })
+
+	wg.StartWithContext(cont, func(ctx context.Context){
 		log.Println("informer starting...", gvr)
-		informer.Informer().Run(context.Done())
+		informer.Informer().Run(cont.Done())
 	})
 
 	// go func() {
