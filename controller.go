@@ -73,6 +73,7 @@ func (c *controller) Stop() {
 	func() {
 		defer log.Println("queue stopped")
 		log.Println("queue stopping ....")
+		close(c.done)
 		c.queue.ShutDown()
 	}()
 }
@@ -88,9 +89,14 @@ func (c *controller) enqueue(obj interface{}) {
 
 func (c *controller) worker(ctx context.Context) {
 	for {
-		if !c.processItem() {
-			// No more items in the queue, exit the loop
-			break
+		select {
+		case <-c.done:
+			return
+		default:
+			if !c.processItem() {
+				// No more items in the queue, exit the loop
+				break
+			}
 		}
 	}
 }

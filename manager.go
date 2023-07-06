@@ -10,7 +10,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/metadata"
@@ -25,7 +24,6 @@ type manager struct {
 	metadataClient  metadata.Interface
 	discoveryClient discovery.DiscoveryInterface
 	checker         checker.AuthChecker
-	wg              wait.Group
 	resController   map[schema.GroupVersionResource]stopFunc
 }
 
@@ -64,7 +62,6 @@ func NewManager(config *rest.Config) (*manager, error) {
 		metadataClient:  metadataClient,
 		discoveryClient: discoveryClient,
 		checker:         selfChecker,
-		wg:              wait.Group{},
 		resController:   resController,
 	}, nil
 }
@@ -77,19 +74,19 @@ func (m *manager) Run(ctx context.Context) error {
 				log.Println("Error stopping informer:", err)
 			}
 		}
-		m.wg.Wait()
 	}()
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
+		case <-ticker.C:
 			if err := m.reconcile(ctx); err != nil {
 				return err
 			}
-			// time.Sleep(1 * time.Minute)
-			time.NewTicker(1*time.Minute)
 		}
 	}
 }
@@ -153,10 +150,15 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 
 
 
-	m.wg.StartWithContext(ctx, func(ctx context.Context) {
-		log.Println("informer starting...", gvr)
+	// m.wg.StartWithContext(ctx, func(ctx context.Context) {
+	// 	log.Println("informer starting...", gvr)
+	// 	informer.Informer().Run(stopChan)
+	// })
+
+	go func() {
+		log.Println("Informer starting...", gvr)
 		informer.Informer().Run(stopChan)
-	})
+	}()
 
 	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced) {
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
