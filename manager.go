@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	authorizationv1client "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	"k8s.io/client-go/metadata"
@@ -140,25 +141,26 @@ func (m *manager) start(ctx context.Context, gvr schema.GroupVersionResource) er
 	controller := newController(m.metadataClient.Resource(gvr), informer)
 
 	stopChan := make(chan struct{}) // Create a stop signal channel
+	var wg wait.Group
 
 	stopFunc := func() {
 		close(stopChan) // Send stop signal to informer's goroutine
 		controller.Stop()
-		// m.wg.Wait()     // Wait for the group to terminate
+		wg.Wait()     // Wait for the group to terminate
 		log.Println("Stopped", gvr)
 	}
 
 
 
-	// m.wg.StartWithContext(ctx, func(ctx context.Context) {
-	// 	log.Println("informer starting...", gvr)
-	// 	informer.Informer().Run(stopChan)
-	// })
-
-	go func() {
-		log.Println("Informer starting...", gvr)
+	wg.StartWithChannel(stopChan, func(stop <-chan struct{}) {
+		log.Println("informer starting...", gvr)
 		informer.Informer().Run(stopChan)
-	}()
+	})
+
+	// go func() {
+	// 	log.Println("Informer starting...", gvr)
+	// 	informer.Informer().Run(stopChan)
+	// }()
 
 	if !cache.WaitForCacheSync(ctx.Done(), informer.Informer().HasSynced) {
 		return fmt.Errorf("failed to wait for cache sync: %s", gvr)
