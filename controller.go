@@ -86,10 +86,10 @@ func (c *controller) Start(ctx context.Context, workers int) {
 func (c *controller) Stop() {
 	defer log.Println("queue stopped")
 	defer c.wg.Wait()
-	log.Println("queue stopping ....")
-	c.queue.ShutDown()
 	// Unregister the event handlers
 	c.UnregisterEventHandlers()
+	log.Println("queue stopping ....")
+	c.queue.ShutDown()
 }
 
 func (c *controller) enqueue(obj interface{}) {
